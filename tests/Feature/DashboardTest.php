@@ -22,7 +22,12 @@ class DashboardTest extends TestCase
         $this->actingAs($user);
 
         $response = $this->get(route('dashboard'));
-        $response->assertOk()->assertSee('Welcome to the HRMS portal')->assertSee('Asia/Dhaka');
+        $response->assertOk()
+            ->assertSee('Welcome to the HRMS portal')
+            ->assertSee('Asia/Dhaka')
+            ->assertSee('href="'.route('guide').'"', false);
+
+        $this->assertSame(1, substr_count($response->getContent(), ' data-flux-main'));
     }
 
     public function test_unverified_users_are_redirected_to_email_verification(): void

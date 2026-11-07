@@ -2,6 +2,8 @@
 
 Bangladesh-first staff portal built with Laravel 13, Fortify, Livewire, Blade, and Tailwind CSS.
 
+The [user guide](docs/user-guide/portal.md) is also available in the portal sidebar. Update it in the same change whenever a user-facing workflow or navigation label changes.
+
 ## Local setup
 
 Use PHP 8.3 or later in Laravel 13’s supported range, Composer 2, Node.js 24, and npm. Enable `pdo_sqlite` for local development and tests or `pdo_mysql` for MySQL or MariaDB.
