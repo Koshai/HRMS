@@ -20,7 +20,7 @@ return new class extends Migration
             $t->string('reason', 2000);
             $t->timestamps();
             $t->unique(['company_id', 'id']);
-            $t->foreign(['company_id', 'actor_user_id'])->references(['company_id', 'id'])->on('users')->restrictOnDelete();
+            $t->foreign(['company_id', 'actor_user_id'], 'pay_policy_actor_fk')->references(['company_id', 'id'])->on('users')->restrictOnDelete();
         });
         Schema::create('compensation_agreements', function (Blueprint $t) {
             $t->id();
@@ -35,9 +35,9 @@ return new class extends Migration
             $t->string('reason', 2000);
             $t->timestamps();
             $t->unique(['company_id', 'id']);
-            $t->index(['company_id', 'employee_profile_id', 'effective_from']);
-            $t->foreign(['company_id', 'employee_profile_id'])->references(['company_id', 'id'])->on('employee_profiles')->restrictOnDelete();
-            $t->foreign(['company_id', 'actor_user_id'])->references(['company_id', 'id'])->on('users')->restrictOnDelete();
+            $t->index(['company_id', 'employee_profile_id', 'effective_from'], 'comp_agreement_dates');
+            $t->foreign(['company_id', 'employee_profile_id'], 'comp_agreement_employee_fk')->references(['company_id', 'id'])->on('employee_profiles')->restrictOnDelete();
+            $t->foreign(['company_id', 'actor_user_id'], 'comp_agreement_actor_fk')->references(['company_id', 'id'])->on('users')->restrictOnDelete();
         });
         Schema::create('payroll_runs', function (Blueprint $t) {
             $t->id();
@@ -57,9 +57,9 @@ return new class extends Migration
             $t->timestamps();
             $t->unique(['company_id', 'id']);
             $t->unique(['company_id', 'run_key']);
-            $t->foreign(['company_id', 'policy_id'])->references(['company_id', 'id'])->on('payroll_policies')->restrictOnDelete();
-            $t->foreign(['company_id', 'prepared_by_user_id'])->references(['company_id', 'id'])->on('users')->restrictOnDelete();
-            $t->foreign(['company_id', 'approved_by_user_id'])->references(['company_id', 'id'])->on('users')->restrictOnDelete();
+            $t->foreign(['company_id', 'policy_id'], 'pay_run_policy_fk')->references(['company_id', 'id'])->on('payroll_policies')->restrictOnDelete();
+            $t->foreign(['company_id', 'prepared_by_user_id'], 'pay_run_preparer_fk')->references(['company_id', 'id'])->on('users')->restrictOnDelete();
+            $t->foreign(['company_id', 'approved_by_user_id'], 'pay_run_approver_fk')->references(['company_id', 'id'])->on('users')->restrictOnDelete();
         });
         Schema::create('payroll_attendance_reviews', function (Blueprint $t) {
             $t->id();
@@ -74,9 +74,9 @@ return new class extends Migration
             $t->string('reason', 2000);
             $t->timestamps();
             $t->unique(['company_id', 'run_id', 'employee_profile_id', 'business_date'], 'payroll_review_day');
-            $t->foreign(['company_id', 'run_id'])->references(['company_id', 'id'])->on('payroll_runs')->restrictOnDelete();
-            $t->foreign(['company_id', 'employee_profile_id'])->references(['company_id', 'id'])->on('employee_profiles')->restrictOnDelete();
-            $t->foreign(['company_id', 'actor_user_id'])->references(['company_id', 'id'])->on('users')->restrictOnDelete();
+            $t->foreign(['company_id', 'run_id'], 'pay_review_run_fk')->references(['company_id', 'id'])->on('payroll_runs')->restrictOnDelete();
+            $t->foreign(['company_id', 'employee_profile_id'], 'pay_review_employee_fk')->references(['company_id', 'id'])->on('employee_profiles')->restrictOnDelete();
+            $t->foreign(['company_id', 'actor_user_id'], 'pay_review_actor_fk')->references(['company_id', 'id'])->on('users')->restrictOnDelete();
         });
         Schema::create('payroll_attendance_recommendations', function (Blueprint $t) {
             $t->id();
@@ -88,8 +88,8 @@ return new class extends Migration
             $t->string('recommendation', 2000);
             $t->timestamps();
             $t->unique(['company_id', 'employee_profile_id', 'business_date', 'actor_user_id'], 'payroll_recommendation_once');
-            $t->foreign(['company_id', 'employee_profile_id'])->references(['company_id', 'id'])->on('employee_profiles')->restrictOnDelete();
-            $t->foreign(['company_id', 'actor_user_id'])->references(['company_id', 'id'])->on('users')->restrictOnDelete();
+            $t->foreign(['company_id', 'employee_profile_id'], 'pay_rec_employee_fk')->references(['company_id', 'id'])->on('employee_profiles')->restrictOnDelete();
+            $t->foreign(['company_id', 'actor_user_id'], 'pay_rec_actor_fk')->references(['company_id', 'id'])->on('users')->restrictOnDelete();
         });
         Schema::create('payroll_adjustments', function (Blueprint $t) {
             $t->id();
@@ -103,9 +103,9 @@ return new class extends Migration
             $t->string('reason', 2000);
             $t->timestamps();
             $t->unique(['company_id', 'run_id', 'idempotency_key'], 'payroll_adjustment_retry');
-            $t->foreign(['company_id', 'run_id'])->references(['company_id', 'id'])->on('payroll_runs')->restrictOnDelete();
-            $t->foreign(['company_id', 'employee_profile_id'])->references(['company_id', 'id'])->on('employee_profiles')->restrictOnDelete();
-            $t->foreign(['company_id', 'actor_user_id'])->references(['company_id', 'id'])->on('users')->restrictOnDelete();
+            $t->foreign(['company_id', 'run_id'], 'pay_adjustment_run_fk')->references(['company_id', 'id'])->on('payroll_runs')->restrictOnDelete();
+            $t->foreign(['company_id', 'employee_profile_id'], 'pay_adjustment_employee_fk')->references(['company_id', 'id'])->on('employee_profiles')->restrictOnDelete();
+            $t->foreign(['company_id', 'actor_user_id'], 'pay_adjustment_actor_fk')->references(['company_id', 'id'])->on('users')->restrictOnDelete();
         });
         Schema::create('payroll_entries', function (Blueprint $t) {
             $t->id();
@@ -119,8 +119,8 @@ return new class extends Migration
             $t->timestamps();
             $t->unique(['company_id', 'id']);
             $t->unique(['company_id', 'run_id', 'employee_profile_id'], 'payroll_entry_once');
-            $t->foreign(['company_id', 'run_id'])->references(['company_id', 'id'])->on('payroll_runs')->restrictOnDelete();
-            $t->foreign(['company_id', 'employee_profile_id'])->references(['company_id', 'id'])->on('employee_profiles')->restrictOnDelete();
+            $t->foreign(['company_id', 'run_id'], 'pay_entry_run_fk')->references(['company_id', 'id'])->on('payroll_runs')->restrictOnDelete();
+            $t->foreign(['company_id', 'employee_profile_id'], 'pay_entry_employee_fk')->references(['company_id', 'id'])->on('employee_profiles')->restrictOnDelete();
         });
         Schema::create('payroll_payments', function (Blueprint $t) {
             $t->id();
@@ -134,8 +134,8 @@ return new class extends Migration
             $t->timestamps();
             $t->unique(['company_id', 'entry_id', 'idempotency_key'], 'payroll_payment_retry');
             $t->unique(['company_id', 'entry_id', 'reference'], 'payroll_payment_reference');
-            $t->foreign(['company_id', 'entry_id'])->references(['company_id', 'id'])->on('payroll_entries')->restrictOnDelete();
-            $t->foreign(['company_id', 'actor_user_id'])->references(['company_id', 'id'])->on('users')->restrictOnDelete();
+            $t->foreign(['company_id', 'entry_id'], 'pay_payment_entry_fk')->references(['company_id', 'id'])->on('payroll_entries')->restrictOnDelete();
+            $t->foreign(['company_id', 'actor_user_id'], 'pay_payment_actor_fk')->references(['company_id', 'id'])->on('users')->restrictOnDelete();
         });
     }
 
