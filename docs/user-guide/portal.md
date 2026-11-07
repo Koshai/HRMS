@@ -40,8 +40,10 @@ Use this guide to sign in, find your account settings, and explore the portal. T
 
 ## Explore a local demo
 
-Use the fictional account and temporary password supplied by the demo operator. Sign out before trying a different role. The employee directory, attendance and leave views change according to your role and reporting relationship. In the local demo, try **Leave settings** as HR to inspect the fictional Dhaka and New York policies, **My leave** as an employee to inspect balances and requests, and **Team leave** as a manager to approve a direct report's pending request. The guide is available inside the portal at **User guide**.
+Use the fictional account and temporary password supplied by the demo operator. Sign out before trying a different role. The employee directory, attendance, leave and schedule views change according to your role and reporting relationship. In the local demo, try **Shift settings** as HR to inspect three fictional templates and schedules; **My schedule** as Ayesha to see the Dhaka workweek and approved-leave exemptions on November 9–10; **Team schedule** as Imran to inspect Ayesha's schedule; and **My leave** as Ayesha to inspect balances and requests. The guide is available inside the portal at **User guide**.
 
 The local demo uses pre-verified addresses and simulated mail delivery. Keep the demo email address as provided to continue exploring.
 
 The leave demo has two fictional leave types, three location-specific policies (Dhaka and New York working weeks differ), two fictional holidays, opening balances, and approved, pending and rejected requests. The fictional unlinked New York employee demonstrates that staff records do not require a portal login. The operator can rerun `php artisan db:seed --class=LeaveDemoSeeder --force` against the isolated local demo database; this seeder refuses to run outside a local environment and is safe to rerun.
+
+The shift demo adds published Dhaka and New York schedules without adding passwords or changing leave balances. The operator can rerun `php artisan db:seed --class=ShiftDemoSeeder --force` against that same isolated local database. The shift seeder also refuses to run outside a local environment.

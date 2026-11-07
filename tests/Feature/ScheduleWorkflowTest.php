@@ -117,12 +117,17 @@ class ScheduleWorkflowTest extends TestCase
     public function test_service_and_database_reject_foreign_company_references(): void
     {
         $hr = User::factory()->create(['role' => Role::HR]);
-        $employee = $this->profile(User::factory()->create(), 'E1');
+        $worker = User::factory()->create();
+        $employee = $this->profile($worker, 'E1');
         $otherCompany = DB::table('companies')->insertGetId(['public_id' => (string) Str::uuid(), 'created_at' => now(), 'updated_at' => now()]);
         $otherHr = User::factory()->create(['role' => Role::HR, 'company_id' => $otherCompany]);
         $otherEmployee = $this->profile(User::factory()->create(['company_id' => $otherCompany]), 'E2');
         $shift = $this->template($hr, $employee->assignments()->first()->location);
         $service = app(ShiftScheduleService::class);
+        $this->expectAuthorization(fn () => $service->createTemplate($worker, $employee->assignments()->first()->location,
+            ['code' => 'DENIED', 'name' => 'Denied', 'starts_at_local' => '09:00', 'ends_at_local' => '17:00',
+                'unpaid_break_minutes' => 0, 'grace_in_minutes' => 0, 'grace_out_minutes' => 0]));
+        $this->expectAuthorization(fn () => $service->assign($worker, $employee, $shift, '2026-11-09', null, [1], 'Unauthorized', 'worker'));
         $this->expectNotFound(fn () => $service->assign($otherHr, $employee, $shift, '2026-11-09', null, [1], 'Unauthorized', 'x'));
         $this->expectNotFound(fn () => $service->assign($hr, $otherEmployee, $shift, '2026-11-09', null, [1], 'Foreign employee', 'y'));
         $this->expectQueryFailure(fn () => ShiftAssignment::create(['company_id' => $otherCompany,
@@ -194,6 +199,23 @@ class ScheduleWorkflowTest extends TestCase
         $this->post(route('admin.schedule.assignments'), ['employee_profile_id' => $employee->id,
             'shift_template_id' => $shift->id, 'starts_on' => '2026-11-09', 'weekdays' => [1],
             'reason' => 'Tampered', 'idempotency_key' => 'tampered', 'company_id' => $foreignCompany])->assertSessionHasErrors('company_id');
+    }
+
+    public function test_location_transfer_exposes_schedule_conflict_and_preserves_prior_duty(): void
+    {
+        $hr = User::factory()->create(['role' => Role::HR]);
+        $employee = $this->profile(User::factory()->create(), 'E1');
+        $employment = $employee->assignments()->first();
+        $shift = $this->template($hr, $employment->location);
+        $service = app(ShiftScheduleService::class);
+        $service->assign($hr, $employee, $shift, '2026-11-09', null, [1, 2, 3, 4, 5], 'Initial', 'initial');
+        $this->assertSame('scheduled', $service->resolve($employee, '2026-11-09')->status);
+        $newLocation = Location::create(['company_id' => $hr->company_id, 'name' => 'Chattogram', 'timezone' => 'Asia/Dhaka', 'is_active' => true]);
+        app(AssignmentService::class)->transfer($employee, $employment->department, $employment->position,
+            $newLocation, CarbonImmutable::parse('2026-11-16'), $hr);
+        $this->assertSame('scheduled', $service->resolve($employee, '2026-11-09')->status);
+        $this->assertSame('location_conflict', $service->resolve($employee, '2026-11-16')->status);
+        $this->assertDatabaseCount('shift_assignments', 1);
     }
 
     private function expectValidation(callable $callback): void
