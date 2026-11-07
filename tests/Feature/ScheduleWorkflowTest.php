@@ -1,0 +1,172 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Employees\AssignmentService;
+use App\Employees\EmployeeProfile;
+use App\Enums\Role;
+use App\Models\User;
+use App\Organization\Department;
+use App\Organization\Location;
+use App\Organization\Position;
+use App\Scheduling\ShiftAssignment;
+use App\Scheduling\ShiftAssignmentRevision;
+use App\Scheduling\ShiftScheduleService;
+use App\Scheduling\ShiftTemplate;
+use Carbon\CarbonImmutable;
+use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Database\QueryException;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpKernel\Exception\HttpException;
+use Tests\TestCase;
+
+class ScheduleWorkflowTest extends TestCase
+{
+    use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->withoutVite();
+        CarbonImmutable::setTestNow('2026-11-07 12:00:00 UTC');
+    }
+
+    protected function tearDown(): void
+    {
+        CarbonImmutable::setTestNow();
+        parent::tearDown();
+    }
+
+    private function profile(User $user, string $number, ?EmployeeProfile $manager = null, string $locationName = 'Dhaka', string $timezone = 'Asia/Dhaka'): EmployeeProfile
+    {
+        $employee = EmployeeProfile::create(['company_id' => $user->company_id, 'user_id' => $user->id,
+            'employee_number' => $number, 'name' => $user->name]);
+        $department = Department::firstOrCreate(['company_id' => $user->company_id, 'name' => 'Operations']);
+        $position = Position::firstOrCreate(['company_id' => $user->company_id, 'name' => 'Officer']);
+        $location = Location::firstOrCreate(['company_id' => $user->company_id, 'name' => $locationName], ['timezone' => $timezone]);
+        app(AssignmentService::class)->assign($employee, $department, $position, $location, CarbonImmutable::parse('2020-01-01'), null, $manager);
+
+        return $employee;
+    }
+
+    private function template(User $hr, Location $location, string $code = 'NIGHT', string $start = '22:00', string $end = '06:00', int $break = 30): ShiftTemplate
+    {
+        return app(ShiftScheduleService::class)->createTemplate($hr, $location, ['code' => $code, 'name' => $code,
+            'starts_at_local' => $start, 'ends_at_local' => $end, 'unpaid_break_minutes' => $break,
+            'grace_in_minutes' => 10, 'grace_out_minutes' => 5]);
+    }
+
+    public function test_hr_assigns_dhaka_overnight_shift_and_resolver_marks_rest_day(): void
+    {
+        $hr = User::factory()->create(['role' => Role::HR]);
+        $worker = User::factory()->create();
+        $employee = $this->profile($worker, 'E1');
+        $service = app(ShiftScheduleService::class);
+        $this->assertSame('unscheduled', $service->resolve($employee, '2026-11-09')->status);
+        $shift = $this->template($hr, $employee->assignments()->first()->location);
+        $assignment = $service->assign($hr, $employee, $shift, '2026-11-09', null, [1, 2, 3, 4, 5], 'Publish duty', 'assignment-1');
+        $this->assertSame($assignment->id, $service->assign($hr, $employee, $shift, '2026-11-09', null, [1, 2, 3, 4, 5], 'Publish duty', 'assignment-1')->id);
+        $duty = $service->resolve($employee, '2026-11-09');
+        $this->assertSame('scheduled', $duty->status);
+        $this->assertSame('2026-11-09 16:00', $duty->startsAt->format('Y-m-d H:i'));
+        $this->assertSame('2026-11-10 00:00', $duty->endsAt->format('Y-m-d H:i'));
+        $this->assertSame(450, $duty->scheduledMinutes);
+        $this->assertSame('rest_day', $service->resolve($employee, '2026-11-15')->status);
+    }
+
+    public function test_overlap_retry_and_future_supersession_keep_audit(): void
+    {
+        $hr = User::factory()->create(['role' => Role::HR]);
+        $employee = $this->profile(User::factory()->create(), 'E1');
+        $service = app(ShiftScheduleService::class);
+        $location = $employee->assignments()->first()->location;
+        $night = $this->template($hr, $location);
+        $day = $this->template($hr, $location, 'DAY', '09:00', '17:00', 60);
+        $first = $service->assign($hr, $employee, $night, '2026-11-09', null, [1, 2, 3, 4, 5], 'Initial', 'initial');
+        $this->expectValidation(fn () => $service->assign($hr, $employee, $day, '2026-11-10', null, [2], 'Overlap', 'overlap'));
+        $this->expectValidation(fn () => $service->assign($hr, $employee, $day, '2026-11-09', null, [1], 'Changed retry', 'initial'));
+        $second = $service->assign($hr, $employee, $day, '2026-11-16', null, [1, 2, 3, 4, 5], 'New pattern', 'replacement', $first->id);
+        $this->assertSame('2026-11-15', $first->fresh()->ends_on->toDateString());
+        $this->assertSame($second->id, $service->resolve($employee, '2026-11-16')->template->assignments()->first()->id);
+        $this->assertDatabaseCount('shift_assignment_revisions', 1);
+        $this->assertSame('New pattern', ShiftAssignmentRevision::sole()->reason);
+        $this->expectException(\LogicException::class);
+        $night->update(['starts_at_local' => '21:00']);
+    }
+
+    public function test_different_weekday_patterns_can_coexist_and_dst_is_deterministic(): void
+    {
+        $hr = User::factory()->create(['role' => Role::HR]);
+        $employee = $this->profile(User::factory()->create(), 'E1', null, 'New York', 'America/New_York');
+        $service = app(ShiftScheduleService::class);
+        $location = $employee->assignments()->first()->location;
+        $spring = $this->template($hr, $location, 'SPRING', '01:00', '04:00', 0);
+        $fall = $this->template($hr, $location, 'FALL', '01:30', '02:30', 0);
+        $service->assign($hr, $employee, $spring, '2027-03-14', '2027-03-14', [7], 'DST spring', 'spring');
+        $service->assign($hr, $employee, $fall, '2027-11-07', '2027-11-07', [7], 'DST fall', 'fall');
+        $this->assertSame(120, $service->resolve($employee, '2027-03-14')->scheduledMinutes);
+        $this->assertSame(120, $service->resolve($employee, '2027-11-07')->scheduledMinutes);
+        $gap = $this->template($hr, $location, 'GAP', '02:30', '04:00', 0);
+        $service->assign($hr, $employee, $gap, '2028-03-12', '2028-03-12', [7], 'DST gap', 'gap');
+        $this->assertSame('invalid_time', $service->resolve($employee, '2028-03-12')->status);
+    }
+
+    public function test_service_and_database_reject_foreign_company_references(): void
+    {
+        $hr = User::factory()->create(['role' => Role::HR]);
+        $employee = $this->profile(User::factory()->create(), 'E1');
+        $otherCompany = DB::table('companies')->insertGetId(['public_id' => (string) Str::uuid(), 'created_at' => now(), 'updated_at' => now()]);
+        $otherHr = User::factory()->create(['role' => Role::HR, 'company_id' => $otherCompany]);
+        $otherEmployee = $this->profile(User::factory()->create(['company_id' => $otherCompany]), 'E2');
+        $shift = $this->template($hr, $employee->assignments()->first()->location);
+        $service = app(ShiftScheduleService::class);
+        $this->expectNotFound(fn () => $service->assign($otherHr, $employee, $shift, '2026-11-09', null, [1], 'Unauthorized', 'x'));
+        $this->expectNotFound(fn () => $service->assign($hr, $otherEmployee, $shift, '2026-11-09', null, [1], 'Foreign employee', 'y'));
+        $this->expectQueryFailure(fn () => ShiftAssignment::create(['company_id' => $otherCompany,
+            'employee_profile_id' => $otherEmployee->id, 'shift_template_id' => $shift->id, 'actor_user_id' => $otherHr->id,
+            'starts_on' => '2026-11-09', 'weekdays' => '1', 'idempotency_key' => 'forged', 'reason' => 'Foreign shift']));
+    }
+
+    private function expectValidation(callable $callback): void
+    {
+        try {
+            $callback();
+            $this->fail('Expected validation failure.');
+        } catch (ValidationException) {
+            $this->assertTrue(true);
+        }
+    }
+
+    private function expectAuthorization(callable $callback): void
+    {
+        try {
+            $callback();
+            $this->fail('Expected authorization failure.');
+        } catch (AuthorizationException) {
+            $this->assertTrue(true);
+        }
+    }
+
+    private function expectNotFound(callable $callback): void
+    {
+        try {
+            $callback();
+            $this->fail('Expected 404.');
+        } catch (HttpException $exception) {
+            $this->assertSame(404, $exception->getStatusCode());
+        }
+    }
+
+    private function expectQueryFailure(callable $callback): void
+    {
+        try {
+            $callback();
+            $this->fail('Expected SQL constraint failure.');
+        } catch (QueryException) {
+            $this->assertTrue(true);
+        }
+    }
+}
