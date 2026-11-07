@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Policies\AttendancePolicy;
+use App\Policies\LeavePolicy;
 use App\Policies\UserPolicy;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Date;
@@ -33,6 +34,11 @@ class AppServiceProvider extends ServiceProvider
         Gate::define('attendance-manual-entry', [AttendancePolicy::class, 'manualEntry']);
         Gate::define('attendance-propose-correction', [AttendancePolicy::class, 'proposeCorrection']);
         Gate::define('attendance-decide', [AttendancePolicy::class, 'decide']);
+        Gate::define('leave-configure', [LeavePolicy::class, 'configure']);
+        Gate::define('leave-view', [LeavePolicy::class, 'view']);
+        Gate::define('leave-request', [LeavePolicy::class, 'request']);
+        Gate::define('leave-decide', [LeavePolicy::class, 'decide']);
+        Gate::define('leave-cancel', [LeavePolicy::class, 'cancel']);
     }
 
     /**

@@ -1,0 +1,28 @@
+<?php
+
+return [
+    'mine' => 'My leave', 'team' => 'Team leave', 'settings' => 'Leave settings', 'saved' => 'Leave change saved.',
+    'unlinked' => 'Your account needs an employee profile before you can use leave.', 'balance' => 'Balance', 'calendar' => 'Approved leave calendar',
+    'granted' => 'Granted / adjusted', 'used' => 'Used', 'pending' => 'Pending', 'available' => 'Available',
+    'days' => 'days', 'request' => 'Request leave', 'history' => 'Leave history', 'type' => 'Leave type',
+    'start' => 'Start date', 'end' => 'End date', 'partial' => 'Half day', 'full' => 'Full day', 'am' => 'Morning', 'pm' => 'Afternoon',
+    'reason' => 'Reason', 'submit' => 'Submit', 'withdraw' => 'Withdraw', 'approve' => 'Approve', 'reject' => 'Reject',
+    'cancel' => 'Cancel approved leave', 'status' => 'Status', 'employee' => 'Employee', 'no_records' => 'No leave requests yet.',
+    'approved' => 'Approved', 'rejected' => 'Rejected', 'withdrawn' => 'Withdrawn', 'cancelled' => 'Cancelled',
+    'new_type' => 'Add leave type', 'code' => 'Code', 'name' => 'Name', 'paid' => 'Paid label', 'active' => 'Active',
+    'new_policy' => 'Add effective policy', 'location' => 'Location', 'effective_from' => 'Effective from', 'effective_to' => 'Effective to',
+    'annual_units' => 'Annual allowance (half-day units)', 'allow_half_day' => 'Allow half days', 'allow_negative' => 'Allow negative balance',
+    'approval_role' => 'Approval route', 'manager' => 'Direct manager or HR', 'hr' => 'HR only', 'weekdays' => 'Working weekdays',
+    'holiday' => 'Add holiday', 'holiday_on' => 'Holiday date', 'grant' => 'Grant / adjust balance', 'year' => 'Year',
+    'units' => 'Half-day units (+ grant / − adjustment)', 'kind' => 'Entry type', 'adjustment' => 'Adjustment', 'entries' => 'Recent balance entries',
+    'policy_overlap' => 'An applicable policy already covers those dates.', 'invalid_range' => 'The date range or half-day selection is invalid.',
+    'invalid_weekdays' => 'Select valid working weekdays.', 'invalid_adjustment' => 'Provide a nonzero valid amount and reason.',
+    'retry_conflict' => 'This submission key was already used for different details.', 'insufficient' => 'Insufficient available leave balance.',
+    'inactive_type' => 'This leave type is inactive.', 'assignment_required' => 'An assignment covering the whole leave period is required.',
+    'overlap' => 'This request overlaps pending or approved leave.', 'half_day_disabled' => 'This policy does not allow half days.',
+    'no_workdays' => 'The selected dates contain no chargeable working day.', 'reason_required' => 'A reason is required.',
+    'invalid_action' => 'Invalid leave action.', 'invalid_state' => 'This leave request has already changed state.',
+    'policy_required' => 'A leave policy must cover every requested date.',
+    'grant_limit' => 'The annual grant would exceed the applicable policy allowance. Use a justified adjustment for an exception.',
+    'approval_route_mismatch' => 'This request crosses policies with different approval routes. Split the request at the policy change.',
+];
