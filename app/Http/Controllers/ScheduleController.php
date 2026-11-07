@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Employees\EmployeeProfile;
 use App\Enums\Role;
 use App\Organization\Location;
+use App\Scheduling\AttendanceSummaryService;
 use App\Scheduling\ShiftAssignment;
 use App\Scheduling\ShiftScheduleService;
 use App\Scheduling\ShiftTemplate;
@@ -17,7 +18,7 @@ use Illuminate\View\View;
 
 class ScheduleController extends Controller
 {
-    public function mine(Request $request, ShiftScheduleService $service): View
+    public function mine(Request $request, AttendanceSummaryService $service): View
     {
         $employee = EmployeeProfile::query()->where('company_id', $request->user()->company_id)
             ->where('user_id', $request->user()->id)->first();
@@ -43,7 +44,7 @@ class ScheduleController extends Controller
         return view('schedule.index', compact('employees'));
     }
 
-    public function show(Request $request, ShiftScheduleService $service, int $employee): View
+    public function show(Request $request, AttendanceSummaryService $service, int $employee): View
     {
         $profile = EmployeeProfile::query()->where('company_id', $request->user()->company_id)->findOrFail($employee);
 
@@ -102,7 +103,7 @@ class ScheduleController extends Controller
         return back()->with('status', __('schedule.saved'));
     }
 
-    private function calendar(Request $request, ShiftScheduleService $service, EmployeeProfile $employee, bool $mine): View
+    private function calendar(Request $request, AttendanceSummaryService $service, EmployeeProfile $employee, bool $mine): View
     {
         Gate::authorize('schedule-view', $employee);
         $input = $request->validate(['month' => ['nullable', 'date_format:Y-m']]);
@@ -111,10 +112,7 @@ class ScheduleController extends Controller
         if (! $first) {
             throw ValidationException::withMessages(['month' => __('schedule.invalid_date')]);
         }
-        $days = [];
-        for ($day = $first->startOfMonth(); $day->lte($first->endOfMonth()); $day = $day->addDay()) {
-            $days[] = $service->resolve($employee, $day->toDateString());
-        }
+        $days = $service->month($employee, $first);
 
         return view('schedule.show', compact('employee', 'days', 'month', 'mine'));
     }
