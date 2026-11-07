@@ -227,8 +227,7 @@ class PayrollService
         }
         $flags = ['no_show_candidate', 'missing_punch', 'partial_leave_review', 'location_conflict', 'invalid_time', 'unscheduled_work', 'rest_day_work', 'leave_with_punch', 'in_progress'];
         $result = [];
-        foreach ($run->entries as $entry) {
-            $employee = EmployeeProfile::query()->findOrFail($entry->employee_profile_id);
+        foreach (EmployeeProfile::query()->where('company_id', $run->company_id)->whereIn('id', $run->selected_employee_ids)->get() as $employee) {
             $reviews = PayrollAttendanceReview::where('run_id', $run->id)->where('employee_profile_id', $employee->id)->get()->keyBy(fn ($review) => $review->business_date->toDateString());
             foreach ($this->attendance->month($employee, CarbonImmutable::parse($run->period_start)) as $summary) {
                 $date = $summary->schedule->date;

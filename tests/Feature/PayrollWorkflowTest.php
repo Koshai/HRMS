@@ -165,6 +165,7 @@ class PayrollWorkflowTest extends TestCase
         $shift = $shiftService->createTemplate($hr, $employee->assignments()->first()->location, ['code' => 'ONE', 'name' => 'One day', 'starts_at_local' => '09:00', 'ends_at_local' => '17:00', 'unpaid_break_minutes' => 30, 'grace_in_minutes' => 0, 'grace_out_minutes' => 0]);
         $shiftService->assign($hr, $employee, $shift, '2026-10-01', '2026-10-01', [4], 'Test shift', 'one-day');
         CarbonImmutable::setTestNow('2026-11-07 12:00:00 UTC');
+        $this->assertCount(1, $service->unresolved($run));
         $service->calculate($run);
         $entry = PayrollEntry::sole();
         $this->assertSame(3410000, (int) $entry->gross_minor);
