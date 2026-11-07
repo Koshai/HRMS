@@ -262,7 +262,7 @@ class PayrollService
             $policy = PayrollPolicy::query()->findOrFail($run->policy_id);
             foreach ($run->entries as $entry) {
                 $employee = EmployeeProfile::query()->whereKey($entry->employee_profile_id)->firstOrFail();
-                if ($entry->snapshot['lines'] !== $this->lines($run, $policy, $employee)) {
+                if ($this->normalizedLines($entry->snapshot['lines']) !== $this->normalizedLines($this->lines($run, $policy, $employee))) {
                     throw ValidationException::withMessages(['approval' => 'Payroll inputs changed. Recalculate and review the draft.']);
                 }
             }
@@ -312,5 +312,20 @@ class PayrollService
         if ($run->status !== 'draft') {
             throw ValidationException::withMessages(['run' => 'Finalized payroll is immutable. Create a supplemental run.']);
         }
+    }
+
+    /**
+     * MySQL JSON stores object keys in its own order; line order and typed values remain significant.
+     *
+     * @param  list<array<string, mixed>>  $lines
+     * @return list<array<string, mixed>>
+     */
+    private function normalizedLines(array $lines): array
+    {
+        foreach ($lines as &$line) {
+            ksort($line);
+        }
+
+        return $lines;
     }
 }
