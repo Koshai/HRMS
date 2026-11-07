@@ -80,3 +80,12 @@ jobs:
           cp .env.example .env
           php artisan key:generate
           php artisan migrate --force
+      - name: Test attendance on MySQL
+        env:
+          DB_CONNECTION: mysql
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_DATABASE: hrms_test
+          DB_USERNAME: root
+          DB_PASSWORD: test_password
+        run: php vendor/bin/phpunit -c phpunit.mysql.xml

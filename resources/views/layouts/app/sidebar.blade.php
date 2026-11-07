@@ -18,6 +18,10 @@
                     <flux:sidebar.item icon="users" :href="route('employees.index')" :current="request()->routeIs('employees.*')" wire:navigate>
                         {{ __('employees.title') }}
                     </flux:sidebar.item>
+                    <flux:sidebar.item icon="clock" :href="route('attendance.mine')" :current="request()->routeIs('attendance.mine')" wire:navigate>{{ __('attendance.mine') }}</flux:sidebar.item>
+                    @if(in_array(auth()->user()->role, [\App\Enums\Role::Admin, \App\Enums\Role::HR, \App\Enums\Role::Manager], true))
+                        <flux:sidebar.item icon="calendar-days" :href="route('attendance.index')" :current="request()->routeIs('attendance.index', 'attendance.show')" wire:navigate>{{ __('attendance.team') }}</flux:sidebar.item>
+                    @endif
                     @can('manage-staff', auth()->user()->company)
                         <flux:sidebar.item icon="building-office" :href="route('admin.organization.index', 'departments')" :current="request()->routeIs('admin.organization.*')" wire:navigate>{{ __('admin.organization') }}</flux:sidebar.item>
                     @endcan

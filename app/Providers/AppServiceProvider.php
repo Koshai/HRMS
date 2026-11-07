@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Policies\AttendancePolicy;
 use App\Policies\UserPolicy;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Date;
@@ -27,6 +28,11 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->configureDefaults();
         Gate::define('manage-staff', [UserPolicy::class, 'manageStaff']);
+        Gate::define('attendance-view', [AttendancePolicy::class, 'view']);
+        Gate::define('attendance-self-punch', [AttendancePolicy::class, 'selfPunch']);
+        Gate::define('attendance-manual-entry', [AttendancePolicy::class, 'manualEntry']);
+        Gate::define('attendance-propose-correction', [AttendancePolicy::class, 'proposeCorrection']);
+        Gate::define('attendance-decide', [AttendancePolicy::class, 'decide']);
     }
 
     /**

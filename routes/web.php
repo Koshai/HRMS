@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\AttendanceController;
 use App\Http\Controllers\EmployeeAdminController;
 use App\Http\Controllers\EmployeeProfileController;
 use App\Http\Controllers\OrganizationAdminController;
@@ -22,6 +23,13 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::view('dashboard', 'dashboard')->name('dashboard');
     Route::get('employees', [EmployeeProfileController::class, 'index'])->name('employees.index');
     Route::get('employees/{employee}', [EmployeeProfileController::class, 'show'])->name('employees.show');
+    Route::get('attendance/mine', [AttendanceController::class, 'mine'])->name('attendance.mine');
+    Route::post('attendance/punch', [AttendanceController::class, 'punch'])->name('attendance.punch');
+    Route::get('attendance', [AttendanceController::class, 'index'])->name('attendance.index');
+    Route::get('attendance/{employee}', [AttendanceController::class, 'show'])->name('attendance.show');
+    Route::post('attendance/{employee}/manual', [AttendanceController::class, 'manual'])->name('attendance.manual');
+    Route::post('attendance/{employee}/records/{record}/corrections', [AttendanceController::class, 'correct'])->name('attendance.correct');
+    Route::post('attendance/{employee}/corrections/{correction}/decision', [AttendanceController::class, 'decide'])->name('attendance.decide');
     Route::get('admin/employees/create', [EmployeeAdminController::class, 'create'])->name('admin.employees.create');
     Route::post('admin/employees', [EmployeeAdminController::class, 'store'])->name('admin.employees.store');
     Route::get('admin/employees/{employee}/edit', [EmployeeAdminController::class, 'edit'])->name('admin.employees.edit');

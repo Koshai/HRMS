@@ -15,6 +15,8 @@ Use PHP 8.3 or later in Laravel 13’s supported range, Composer 2, Node.js 24, 
 
 Run `php artisan test` for the suite with in-memory SQLite. `composer test` adds Pint and PHPStan checks. Set `APP_LOCALE=bn` to use the initial Bangla dashboard strings. The display clock defaults to `Asia/Dhaka` and database sessions use UTC.
 
+Attendance uses server timestamps for employee punches. Manual entries and correction proposals default to a 90-day lookback and a five-minute future allowance; configure these with `HRMS_ATTENDANCE_MANUAL_PAST_DAYS` and `HRMS_ATTENDANCE_FUTURE_MINUTES`. Work dates and local input use the effective assignment location's IANA time zone. Configure a working mail transport before sending staff invitations. GitHub CI runs attendance feature tests against MySQL 8.4 using the dedicated `phpunit.mysql.xml` configuration; that test database is disposable.
+
 ## Staff access
 
 Provision accounts from a trusted terminal using `php artisan hrms:create-user "Site Admin" admin@example.invalid --role=admin`. Replace the example address with the authorized staff member’s email. The supported roles are `admin`, `hr`, `manager`, and `employee` (the default).

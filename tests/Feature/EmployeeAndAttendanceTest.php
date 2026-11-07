@@ -70,7 +70,7 @@ class EmployeeAndAttendanceTest extends TestCase
 
         $this->actingAs($admin)->get(route('employees.show', $otherProfile))->assertNotFound();
         $this->expectException(AuthorizationException::class);
-        app(AttendanceService::class)->record($admin, $otherProfile, 'check_in', CarbonImmutable::now('UTC'), 'other-company');
+        app(AttendanceService::class)->punch($admin, $otherProfile, 'check_in', 'other-company');
     }
 
     public function test_attendance_preserves_provenance_retries_and_correction(): void
@@ -78,17 +78,23 @@ class EmployeeAndAttendanceTest extends TestCase
         $employeeUser = User::factory()->create();
         $hr = User::factory()->create(['role' => Role::HR]);
         $employee = $this->profile($employeeUser, 'E001');
+        $department = Department::create(['company_id' => $employee->company_id, 'name' => 'Operations']);
+        $position = Position::create(['company_id' => $employee->company_id, 'name' => 'Officer']);
+        $location = Location::create(['company_id' => $employee->company_id, 'name' => 'Dhaka']);
+        app(AssignmentService::class)->assign($employee, $department, $position, $location, CarbonImmutable::parse('2020-01-01'));
         $service = app(AttendanceService::class);
         $instant = CarbonImmutable::parse('2026-11-07 18:30:00', 'UTC');
-        $original = $service->record($employeeUser, $employee, 'check_in', $instant, 'entry-1');
+        CarbonImmutable::setTestNow($instant);
+        $original = $service->punch($employeeUser, $employee, 'check_in', 'entry-1');
         $this->assertSame('2026-11-08', $original->business_date->toDateString());
         $this->assertSame('employee_self', $original->source);
-        $this->assertSame($original->id, $service->record($employeeUser, $employee, 'check_in', $instant, 'entry-1')->id);
-        $correction = $service->record($hr, $employee, 'check_in', $instant->addMinutes(5), 'correction-1', $original, 'Clock was five minutes late');
+        $this->assertSame($original->id, $service->punch($employeeUser, $employee, 'check_in', 'entry-1')->id);
+        $correction = $service->proposeCorrection($hr, $original, 'check_in', $instant->addMinutes(5), 'Clock was five minutes late', 'correction-1');
         $this->assertSame('pending', $correction->status);
         $this->assertSame('hr_manual', $correction->source);
         $this->assertSame($original->id, $correction->correction_of_id);
         $this->assertSame('recorded', $original->fresh()->status);
         $this->assertSame(2, AttendanceRecord::count());
+        CarbonImmutable::setTestNow();
     }
 }
