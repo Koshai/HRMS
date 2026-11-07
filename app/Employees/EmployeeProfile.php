@@ -12,6 +12,11 @@ class EmployeeProfile extends Model
 {
     protected $guarded = [];
 
+    protected function casts(): array
+    {
+        return ['started_on' => 'immutable_date'];
+    }
+
     /** @return BelongsTo<Company, $this> */
     public function company(): BelongsTo
     {

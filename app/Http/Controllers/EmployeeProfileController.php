@@ -17,6 +17,11 @@ class EmployeeProfileController extends Controller
         $actor = $request->user();
         $today = now(config('hrms.display_timezone'))->toDateString();
         $profiles = EmployeeProfile::query()->where('company_id', $actor->company_id);
+        $search = trim((string) $request->query('search', ''));
+        if ($search !== '') {
+            $profiles->where(fn ($query) => $query->where('name', 'like', '%'.addcslashes($search, '%_\\').'%')
+                ->orWhere('employee_number', 'like', '%'.addcslashes($search, '%_\\').'%'));
+        }
 
         if (! in_array($actor->role, [Role::Admin, Role::HR], true)) {
             $profiles->where(function ($query) use ($actor, $today) {
@@ -37,7 +42,8 @@ class EmployeeProfileController extends Controller
             ->with(['department', 'position', 'location'])]);
 
         return view('employees.index', [
-            'employees' => $profiles->orderBy('name')->paginate(25),
+            'employees' => $profiles->orderBy('name')->paginate(25)->withQueryString(),
+            'search' => $search,
         ]);
     }
 

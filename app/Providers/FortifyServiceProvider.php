@@ -3,12 +3,15 @@
 namespace App\Providers;
 
 use App\Actions\Fortify\ResetUserPassword;
+use App\Models\User;
 use Illuminate\Auth\Middleware\RequirePassword;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Str;
+use Illuminate\Support\Timebox;
 use Laravel\Fortify\Fortify;
 use Livewire\Livewire;
 
@@ -49,6 +52,14 @@ class FortifyServiceProvider extends ServiceProvider
     private function configureActions(): void
     {
         Fortify::resetUserPasswordsUsing(ResetUserPassword::class);
+        Fortify::authenticateUsing(function (Request $request): ?User {
+            return app(Timebox::class)->call(function () use ($request): ?User {
+                $user = User::query()->where('email', $request->input('email'))->first();
+
+                return $user && Hash::check((string) $request->input('password'), $user->password)
+                    && ! $user->employeeProfile()->where('status', 'inactive')->exists() ? $user : null;
+            }, 200000);
+        });
     }
 
     /**

@@ -3,7 +3,12 @@
         <header class="mb-6">
             <h1 class="text-3xl font-semibold tracking-tight text-zinc-950 dark:text-white">{{ __('employees.directory') }}</h1>
             <p class="mt-2 text-sm text-zinc-600 dark:text-zinc-300">{{ __('employees.directory_help') }}</p>
+            @can('manage-staff', auth()->user()->company)
+                <a href="{{ route('admin.employees.create') }}" class="mt-4 inline-block rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white">{{ __('admin.new_employee') }}</a>
+            @endcan
         </header>
+
+        <form method="GET" class="mb-5 flex gap-2"><label for="employee-search" class="sr-only">{{ __('admin.search') }}</label><input id="employee-search" name="search" value="{{ $search }}" class="w-full rounded-lg border p-2 dark:bg-zinc-800"><button class="rounded-lg bg-teal-700 px-4 py-2 text-white">{{ __('admin.search') }}</button></form>
 
         @if ($employees->isEmpty())
             <p class="rounded-xl border border-zinc-200 p-6 text-zinc-600 dark:border-zinc-700 dark:text-zinc-300">{{ __('employees.empty') }}</p>

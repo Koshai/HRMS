@@ -18,6 +18,9 @@
                     <flux:sidebar.item icon="users" :href="route('employees.index')" :current="request()->routeIs('employees.*')" wire:navigate>
                         {{ __('employees.title') }}
                     </flux:sidebar.item>
+                    @can('manage-staff', auth()->user()->company)
+                        <flux:sidebar.item icon="building-office" :href="route('admin.organization.index', 'departments')" :current="request()->routeIs('admin.organization.*')" wire:navigate>{{ __('admin.organization') }}</flux:sidebar.item>
+                    @endcan
                 </flux:sidebar.group>
                 <flux:sidebar.group :heading="__('portal.account')">
                     <flux:sidebar.item icon="user" :href="route('profile.edit')" :current="request()->routeIs('profile.edit')" wire:navigate>
