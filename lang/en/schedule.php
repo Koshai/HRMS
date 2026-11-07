@@ -1,0 +1,26 @@
+<?php
+
+return [
+    'mine' => 'My schedule', 'team' => 'Team schedule', 'settings' => 'Shift settings', 'saved' => 'Schedule saved.',
+    'unlinked' => 'Your account needs an employee profile to view a schedule.', 'no_records' => 'No employees found.',
+    'month' => 'Month', 'view' => 'View', 'date' => 'Work date', 'shift' => 'Shift', 'timezone' => 'Time zone',
+    'start' => 'Local start', 'end' => 'Local end', 'overnight' => 'Ends next day', 'scheduled_minutes' => 'Scheduled work minutes',
+    'rest_day' => 'Rest day', 'unscheduled' => 'No assigned shift', 'no_assignment' => 'No employment assignment',
+    'location_conflict' => 'Shift location differs from employment assignment', 'invalid_time' => 'Shift falls in a time-zone gap',
+    'scheduled' => 'Scheduled', 'new_template' => 'Create shift template', 'edit_template' => 'Edit shift template',
+    'new_assignment' => 'Publish employee schedule', 'code' => 'Code', 'name' => 'Name', 'location' => 'Location',
+    'break' => 'Unpaid break (minutes)', 'grace_in' => 'Arrival grace (minutes)', 'grace_out' => 'Departure grace (minutes)',
+    'active' => 'Active for new assignments', 'employee' => 'Employee', 'effective_from' => 'Start date', 'effective_to' => 'End date',
+    'weekdays' => 'Scheduled weekdays', 'reason' => 'Reason', 'replace' => 'Replace an existing schedule from start date (optional)',
+    'submit' => 'Save', 'published' => 'Published schedules', 'template' => 'Template', 'all' => 'All',
+    'invalid_duration' => 'Shift duration must be 30 minutes to 16 hours and longer than its unpaid break.',
+    'invalid_clock' => 'Enter a valid local time.', 'invalid_timezone' => 'The location has an invalid IANA time zone.',
+    'inactive_location' => 'Inactive locations cannot receive new shift templates.', 'duplicate_code' => 'This location already has that shift code.',
+    'assigned_template_frozen' => 'Timing and break rules of an assigned template are frozen. Create a new template.',
+    'invalid_assignment' => 'Enter valid dates, weekdays, reason and submission key.', 'inactive_template' => 'Inactive shift or location cannot be assigned.',
+    'no_retroactive' => 'Schedules cannot be published before today in the shift location.',
+    'employment_required' => 'An employment assignment at the shift location must cover the schedule.',
+    'invalid_supersession' => 'The replaced schedule must start earlier and cover the replacement date.',
+    'overlap' => 'A schedule already covers one of these weekdays and dates.', 'retry_conflict' => 'This submission key was used for different schedule details.',
+    'invalid_date' => 'Enter a valid work date.',
+];

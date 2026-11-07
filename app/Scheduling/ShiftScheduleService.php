@@ -46,6 +46,45 @@ class ShiftScheduleService
         });
     }
 
+    /** @param array<string, mixed> $data */
+    public function updateTemplate(User $actor, ShiftTemplate $template, array $data): ShiftTemplate
+    {
+        Gate::forUser($actor)->authorize('schedule-manage');
+        abort_unless($actor->company_id === $template->company_id, 404);
+        $start = $this->clock($data['starts_at_local'] ?? '');
+        $end = $this->clock($data['ends_at_local'] ?? '');
+        $duration = ($end - $start + 1440) % 1440;
+        if ($duration < 30 || $duration > 960 || (int) $data['unpaid_break_minutes'] >= $duration
+            || (int) $data['grace_in_minutes'] > 120 || (int) $data['grace_out_minutes'] > 120) {
+            $this->fail('ends_at_local', 'schedule.invalid_duration');
+        }
+
+        return DB::transaction(function () use ($actor, $template, $data, $end, $start) {
+            Gate::forUser($actor)->authorize('schedule-manage');
+            $current = ShiftTemplate::query()->where('company_id', $actor->company_id)->lockForUpdate()->findOrFail($template->id);
+            $changes = ['name' => $data['name'], 'starts_at_local' => $data['starts_at_local'],
+                'ends_at_local' => $data['ends_at_local'], 'ends_next_day' => $end < $start,
+                'unpaid_break_minutes' => (int) $data['unpaid_break_minutes'],
+                'grace_in_minutes' => (int) $data['grace_in_minutes'], 'grace_out_minutes' => (int) $data['grace_out_minutes'],
+                'is_active' => (bool) $data['is_active']];
+            if ($current->assignments()->exists()) {
+                foreach (['starts_at_local', 'ends_at_local', 'ends_next_day', 'unpaid_break_minutes', 'grace_in_minutes', 'grace_out_minutes'] as $field) {
+                    $old = (string) $current->getAttribute($field);
+                    $new = (string) $changes[$field];
+                    if (in_array($field, ['starts_at_local', 'ends_at_local'], true)) {
+                        $old = substr($old, 0, 5);
+                    }
+                    if ($old !== $new) {
+                        $this->fail($field, 'schedule.assigned_template_frozen');
+                    }
+                }
+            }
+            $current->update($changes);
+
+            return $current;
+        });
+    }
+
     /** @param list<int> $weekdays */
     public function assign(User $actor, EmployeeProfile $employee, ShiftTemplate $template, string $start, ?string $end, array $weekdays, string $reason, string $key, ?int $supersedesId = null): ShiftAssignment
     {
@@ -179,7 +218,7 @@ class ShiftScheduleService
     private function clock(string $value): int
     {
         if (! preg_match('/^([01]\d|2[0-3]):([0-5]\d)$/', $value, $matches)) {
-            $this->fail('starts_at_local', 'schedule.invalid_time');
+            $this->fail('starts_at_local', 'schedule.invalid_clock');
         }
 
         return (int) $matches[1] * 60 + (int) $matches[2];

@@ -1,0 +1,1 @@
+<x-layouts::app :title="__('schedule.mine')"><section class="mx-auto max-w-4xl p-6"><h1 class="text-3xl font-semibold">{{ __('schedule.mine') }}</h1><p class="mt-4">{{ __('schedule.unlinked') }}</p></section></x-layouts::app>

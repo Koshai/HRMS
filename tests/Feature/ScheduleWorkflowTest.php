@@ -130,6 +130,72 @@ class ScheduleWorkflowTest extends TestCase
             'starts_on' => '2026-11-09', 'weekdays' => '1', 'idempotency_key' => 'forged', 'reason' => 'Foreign shift']));
     }
 
+    public function test_hr_can_publish_through_portal_and_employee_sees_own_schedule(): void
+    {
+        $hr = User::factory()->create(['role' => Role::HR]);
+        $worker = User::factory()->create();
+        $employee = $this->profile($worker, 'E1');
+        $this->actingAs($hr)->get(route('admin.schedule.index'))->assertOk()->assertSee(__('schedule.new_template'));
+        $this->post(route('admin.schedule.templates'), ['location_id' => $employee->assignments()->first()->location_id,
+            'code' => 'NIGHT', 'name' => 'Night duty', 'starts_at_local' => '22:00', 'ends_at_local' => '06:00',
+            'unpaid_break_minutes' => 30, 'grace_in_minutes' => 10, 'grace_out_minutes' => 5])->assertRedirect();
+        $shift = ShiftTemplate::sole();
+        $this->post(route('admin.schedule.assignments'), ['employee_profile_id' => $employee->id,
+            'shift_template_id' => $shift->id, 'starts_on' => '2026-11-09', 'weekdays' => [1, 2, 3, 4, 5],
+            'reason' => 'Published roster', 'idempotency_key' => 'publish-1'])->assertRedirect();
+        $this->actingAs($worker)->get(route('schedule.mine', ['month' => '2026-11']))->assertOk()
+            ->assertSee('Night duty')->assertSee('Asia/Dhaka')->assertSee(__('schedule.overnight'));
+        $this->get(route('admin.schedule.index'))->assertForbidden();
+        $this->post(route('admin.schedule.assignments'), ['employee_profile_id' => $employee->id])->assertForbidden();
+        $this->post(route('admin.schedule.templates'), ['location_id' => $employee->assignments()->first()->location_id])->assertForbidden();
+        $this->actingAs($hr)->put(route('admin.schedule.templates.update', $shift), [
+            'name' => 'Night duty v1', 'starts_at_local' => '21:00', 'ends_at_local' => '06:00',
+            'unpaid_break_minutes' => 30, 'grace_in_minutes' => 10, 'grace_out_minutes' => 5, 'is_active' => 1,
+        ])->assertSessionHasErrors('starts_at_local');
+    }
+
+    public function test_manager_scope_and_unverified_inactive_unlinked_access(): void
+    {
+        $manager = User::factory()->create(['role' => Role::Manager]);
+        $managerProfile = $this->profile($manager, 'M1');
+        $worker = User::factory()->create();
+        $employee = $this->profile($worker, 'E1', $managerProfile);
+        $other = $this->profile(User::factory()->create(), 'E2');
+        $this->actingAs($manager)->get(route('schedule.index'))->assertOk()->assertSee($employee->name)->assertDontSee($other->name);
+        $this->get(route('schedule.show', $other))->assertForbidden();
+        $this->get(route('schedule.show', $employee))->assertOk();
+        $this->get(route('admin.schedule.index'))->assertForbidden();
+        $employee->assignments()->first()->update(['manager_employee_profile_id' => null]);
+        $this->get(route('schedule.show', $employee))->assertForbidden();
+        $unlinked = User::factory()->create();
+        $this->actingAs($unlinked)->get(route('schedule.mine'))->assertOk()->assertSee(__('schedule.unlinked'));
+        $this->actingAs($worker)->get(route('schedule.mine'))->assertOk();
+        $employee->update(['status' => 'inactive']);
+        $this->get(route('schedule.mine'))->assertRedirect(route('login'));
+        $employee->update(['status' => 'active']);
+        $worker->forceFill(['email_verified_at' => null])->save();
+        $this->actingAs($worker->fresh())->get(route('schedule.mine'))->assertRedirect(route('verification.notice'));
+    }
+
+    public function test_portal_rejects_foreign_ids_and_tampered_company(): void
+    {
+        $hr = User::factory()->create(['role' => Role::HR]);
+        $employee = $this->profile(User::factory()->create(), 'E1');
+        $foreignCompany = DB::table('companies')->insertGetId(['public_id' => (string) Str::uuid(), 'created_at' => now(), 'updated_at' => now()]);
+        $foreignEmployee = $this->profile(User::factory()->create(['company_id' => $foreignCompany]), 'E2');
+        $foreignLocation = $foreignEmployee->assignments()->first()->location;
+        $this->actingAs($hr)->post(route('admin.schedule.templates'), ['location_id' => $foreignLocation->id,
+            'code' => 'FOREIGN', 'name' => 'Foreign', 'starts_at_local' => '09:00', 'ends_at_local' => '17:00',
+            'unpaid_break_minutes' => 0, 'grace_in_minutes' => 0, 'grace_out_minutes' => 0])->assertNotFound();
+        $shift = $this->template($hr, $employee->assignments()->first()->location);
+        $this->post(route('admin.schedule.assignments'), ['employee_profile_id' => $foreignEmployee->id,
+            'shift_template_id' => $shift->id, 'starts_on' => '2026-11-09', 'weekdays' => [1],
+            'reason' => 'Wrong company', 'idempotency_key' => 'foreign'])->assertNotFound();
+        $this->post(route('admin.schedule.assignments'), ['employee_profile_id' => $employee->id,
+            'shift_template_id' => $shift->id, 'starts_on' => '2026-11-09', 'weekdays' => [1],
+            'reason' => 'Tampered', 'idempotency_key' => 'tampered', 'company_id' => $foreignCompany])->assertSessionHasErrors('company_id');
+    }
+
     private function expectValidation(callable $callback): void
     {
         try {
