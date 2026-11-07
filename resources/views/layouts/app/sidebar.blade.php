@@ -21,15 +21,20 @@
                     <flux:sidebar.item icon="clock" :href="route('attendance.mine')" :current="request()->routeIs('attendance.mine')" wire:navigate>{{ __('attendance.mine') }}</flux:sidebar.item>
                     <flux:sidebar.item icon="calendar-days" :href="route('schedule.mine')" :current="request()->routeIs('schedule.mine')" wire:navigate>{{ __('schedule.mine') }}</flux:sidebar.item>
                     <flux:sidebar.item icon="calendar-days" :href="route('leave.mine')" :current="request()->routeIs('leave.mine')" wire:navigate>{{ __('leave.mine') }}</flux:sidebar.item>
+                    <flux:sidebar.item icon="document-text" :href="route('payroll.mine')" :current="request()->routeIs('payroll.mine', 'payroll.payslip')" wire:navigate>{{ __('payroll.payslips') }}</flux:sidebar.item>
                     @if(in_array(auth()->user()->role, [\App\Enums\Role::Admin, \App\Enums\Role::HR, \App\Enums\Role::Manager], true))
                         <flux:sidebar.item icon="calendar-days" :href="route('attendance.index')" :current="request()->routeIs('attendance.index', 'attendance.show')" wire:navigate>{{ __('attendance.team') }}</flux:sidebar.item>
                         <flux:sidebar.item icon="calendar-days" :href="route('schedule.index')" :current="request()->routeIs('schedule.index', 'schedule.show')" wire:navigate>{{ __('schedule.team') }}</flux:sidebar.item>
                         <flux:sidebar.item icon="users" :href="route('leave.index')" :current="request()->routeIs('leave.index')" wire:navigate>{{ __('leave.team') }}</flux:sidebar.item>
+                        <flux:sidebar.item icon="clipboard-document-check" :href="route('payroll.team')" :current="request()->routeIs('payroll.team')" wire:navigate>Attendance exceptions</flux:sidebar.item>
                     @endif
                     @can('manage-staff', auth()->user()->company)
                         <flux:sidebar.item icon="building-office" :href="route('admin.organization.index', 'departments')" :current="request()->routeIs('admin.organization.*')" wire:navigate>{{ __('admin.organization') }}</flux:sidebar.item>
                         <flux:sidebar.item icon="calendar-days" :href="route('admin.leave.index')" :current="request()->routeIs('admin.leave.*')" wire:navigate>{{ __('leave.settings') }}</flux:sidebar.item>
                         <flux:sidebar.item icon="clock" :href="route('admin.schedule.index')" :current="request()->routeIs('admin.schedule.*')" wire:navigate>{{ __('schedule.settings') }}</flux:sidebar.item>
+                    @endcan
+                    @can('payroll-manage')
+                        <flux:sidebar.item icon="banknotes" :href="route('payroll.index')" :current="request()->routeIs('payroll.*') && !request()->routeIs('payroll.mine', 'payroll.payslip')" wire:navigate>{{ __('payroll.title') }}</flux:sidebar.item>
                     @endcan
                 </flux:sidebar.group>
                 <flux:sidebar.group :heading="__('portal.account')">

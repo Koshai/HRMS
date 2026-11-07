@@ -4,10 +4,12 @@ namespace App\Employees;
 
 use App\Models\User;
 use App\Organization\Company;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
+/** @property CarbonImmutable|null $started_on */
 class EmployeeProfile extends Model
 {
     protected $guarded = [];
