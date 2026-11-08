@@ -3,10 +3,14 @@
 namespace App\Leave;
 
 use App\Employees\EmployeeProfile;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
+/** @property CarbonImmutable $starts_on
+ * @property CarbonImmutable $ends_on
+ */
 class LeaveRequest extends Model
 {
     protected $guarded = [];

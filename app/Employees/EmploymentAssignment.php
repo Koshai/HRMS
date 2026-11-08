@@ -5,9 +5,13 @@ namespace App\Employees;
 use App\Organization\Department;
 use App\Organization\Location;
 use App\Organization\Position;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/** @property CarbonImmutable $starts_on
+ * @property CarbonImmutable|null $ends_on
+ */
 class EmploymentAssignment extends Model
 {
     protected $guarded = [];

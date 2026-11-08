@@ -3,11 +3,15 @@
 namespace App\Scheduling;
 
 use App\Employees\EmployeeProfile;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use LogicException;
 
+/** @property CarbonImmutable $starts_on
+ * @property CarbonImmutable|null $ends_on
+ */
 class ShiftAssignment extends Model
 {
     protected $guarded = [];

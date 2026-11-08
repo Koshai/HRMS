@@ -85,6 +85,31 @@ class ScheduleSummaryTest extends TestCase
             'idempotency_key' => (string) Str::uuid()]);
     }
 
+    public function test_month_batch_matches_daily_business_outcomes_across_work_rest_and_leave(): void
+    {
+        $hr = User::factory()->create(['role' => Role::HR]);
+        $worker = User::factory()->create();
+        $employee = $this->employee($worker);
+        $this->schedule($hr, $employee);
+        $this->event($hr, $employee, 'check_in', '2026-11-09 03:15:00', '2026-11-09');
+        $this->event($hr, $employee, 'check_out', '2026-11-09 10:45:00', '2026-11-09');
+        $this->leave($worker, $employee, '2026-11-10', 'approved');
+        $this->leave($worker, $employee, '2026-11-11', 'approved', 'am');
+        $this->event($hr, $employee, 'check_in', '2026-11-15 03:00:00', '2026-11-15');
+        $this->event($hr, $employee, 'check_out', '2026-11-15 04:00:00', '2026-11-15');
+        $service = app(AttendanceSummaryService::class);
+        $asOf = CarbonImmutable::parse('2026-12-01 12:00:00 UTC');
+        $month = $service->month($employee, CarbonImmutable::parse('2026-11-01'), $asOf);
+        $this->assertCount(30, $month);
+        foreach ($month as $summary) {
+            $daily = $service->daily($employee, $summary->schedule->date, $asOf);
+            $signature = fn ($item) => [$item->status, $item->actualMinutes, $item->lateMinutes, $item->earlyMinutes,
+                $item->hasApprovedLeave, $item->hasPartialLeave, $item->schedule->status, $item->schedule->scheduledMinutes,
+                $item->schedule->template?->id, $item->schedule->startsAt?->toISOString(), $item->schedule->endsAt?->toISOString(), $item->schedule->timezone];
+            $this->assertSame($signature($daily), $signature($summary), $summary->schedule->date);
+        }
+    }
+
     public function test_future_duty_is_not_no_show_and_only_approved_full_leave_excuses(): void
     {
         $hr = User::factory()->create(['role' => Role::HR]);

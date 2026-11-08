@@ -34,10 +34,12 @@ class AttendanceSummaryService
         $leave = LeaveRequest::query()->where('company_id', $employee->company_id)->where('employee_profile_id', $employee->id)
             ->where('status', 'approved')->whereDate('starts_on', '<=', $end->toDateString())
             ->whereDate('ends_on', '>=', $start->toDateString())->get();
+        $schedules = $this->schedules->range($employee, $start->toDateString(), $end->toDateString());
         $days = [];
         $now = $asOf ?? CarbonImmutable::now('UTC');
         for ($day = $start; $day->lte($end); $day = $day->addDay()) {
-            $days[] = $this->evaluate($employee, $day->toDateString(), $now, $events, $leave);
+            $date = $day->toDateString();
+            $days[] = $this->evaluate($employee, $date, $now, $events, $leave, $schedules[$date]);
         }
 
         return $days;
@@ -46,9 +48,9 @@ class AttendanceSummaryService
     /** @param Collection<int, AttendanceRecord> $allEvents
      * @param  Collection<int, LeaveRequest>  $allLeave
      */
-    private function evaluate(EmployeeProfile $employee, string $date, CarbonImmutable $now, Collection $allEvents, Collection $allLeave): DailyAttendanceSummary
+    private function evaluate(EmployeeProfile $employee, string $date, CarbonImmutable $now, Collection $allEvents, Collection $allLeave, ?ScheduleResolution $schedule = null): DailyAttendanceSummary
     {
-        $schedule = $this->schedules->resolve($employee, $date);
+        $schedule ??= $this->schedules->resolve($employee, $date);
         $events = $allEvents->filter(fn ($event) => $event->getAttribute('effective_business_date') === $date)
             ->sortBy(fn ($event) => $this->instant($event)->getTimestamp())->values();
         $leave = $allLeave->filter(fn ($request) => CarbonImmutable::parse($request->starts_on)->toDateString() <= $date

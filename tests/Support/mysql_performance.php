@@ -39,7 +39,8 @@ function measure(string $name, callable $task): array
     $started = microtime(true);
     $result = $task();
 
-    return ['workload' => $name, 'milliseconds' => round((microtime(true) - $started) * 1000, 1), 'queries' => $queries - $before, 'result' => $result];
+    return ['workload' => $name, 'milliseconds' => round((microtime(true) - $started) * 1000, 1), 'queries' => $queries - $before,
+        'process_peak_bytes' => memory_get_peak_usage(true), 'result' => $result];
 }
 
 $hr = User::factory()->create(['role' => Role::HR]);
@@ -54,7 +55,7 @@ $location = Location::firstOrCreate(['company_id' => $hr->company_id, 'name' => 
 $leaveType = LeaveType::create(['company_id' => $hr->company_id, 'code' => 'PERF-'.bin2hex(random_bytes(3)), 'name' => 'Fictional performance leave', 'is_paid' => true, 'is_active' => true]);
 $employees = [];
 $results = [];
-foreach ([5 => '2026-07-01', 20 => '2026-08-01', 40 => '2026-09-01'] as $size => $month) {
+foreach ([5 => '2026-07-01', 20 => '2026-08-01', 40 => '2026-09-01', 100 => '2026-06-01'] as $size => $month) {
     while (count($employees) < $size) {
         $user = User::factory()->create();
         $employee = EmployeeProfile::create(['company_id' => $hr->company_id, 'user_id' => $user->id, 'employee_number' => 'PERF-'.bin2hex(random_bytes(5)), 'name' => 'Fictional Performance Staff '.(count($employees) + 1), 'started_on' => '2026-01-01']);
@@ -97,4 +98,4 @@ foreach ([5 => '2026-07-01', 20 => '2026-08-01', 40 => '2026-09-01'] as $size =>
         }),
     ];
 }
-echo json_encode(['database' => 'MySQL', 'staff_sizes' => [5, 20, 40], 'results' => $results], JSON_THROW_ON_ERROR).PHP_EOL;
+echo json_encode(['database' => 'MySQL', 'staff_sizes' => [5, 20, 40, 100], 'results' => $results], JSON_THROW_ON_ERROR).PHP_EOL;

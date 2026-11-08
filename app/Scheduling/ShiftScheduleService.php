@@ -3,10 +3,12 @@
 namespace App\Scheduling;
 
 use App\Employees\EmployeeProfile;
+use App\Employees\EmploymentAssignment;
 use App\Models\User;
 use App\Organization\Location;
 use Carbon\CarbonImmutable;
 use DateTimeZone;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
@@ -158,18 +160,43 @@ class ShiftScheduleService
 
     public function resolve(EmployeeProfile $employee, string $date): ScheduleResolution
     {
-        $day = CarbonImmutable::createFromFormat('!Y-m-d', $date);
-        if (! $day || $day->toDateString() !== $date) {
+        return $this->range($employee, $date, $date)[$date];
+    }
+
+    /** @return array<string, ScheduleResolution> */
+    public function range(EmployeeProfile $employee, string $start, string $end): array
+    {
+        $first = CarbonImmutable::createFromFormat('!Y-m-d', $start);
+        $last = CarbonImmutable::createFromFormat('!Y-m-d', $end);
+        if (! $first || $first->toDateString() !== $start || ! $last || $last->toDateString() !== $end || $last->lessThan($first)) {
             $this->fail('date', 'schedule.invalid_date');
         }
-        $employment = $employee->assignments()->whereDate('starts_on', '<=', $date)
-            ->where(fn ($query) => $query->whereNull('ends_on')->orWhereDate('ends_on', '>=', $date))->with('location')->first();
+        $employment = $employee->assignments()->where('company_id', $employee->company_id)
+            ->whereDate('starts_on', '<=', $end)->where(fn ($query) => $query->whereNull('ends_on')->orWhereDate('ends_on', '>=', $start))
+            ->with('location')->orderBy('id')->get();
+        $shifts = ShiftAssignment::query()->where('company_id', $employee->company_id)->where('employee_profile_id', $employee->id)
+            ->whereDate('starts_on', '<=', $end)->where(fn ($query) => $query->whereNull('ends_on')->orWhereDate('ends_on', '>=', $start))
+            ->with('template.location')->orderBy('id')->get();
+        $results = [];
+        for ($day = $first; $day->lte($last); $day = $day->addDay()) {
+            $date = $day->toDateString();
+            $currentEmployment = $employment->first(fn (EmploymentAssignment $row) => $row->starts_on->toDateString() <= $date
+                && ($row->ends_on === null || $row->ends_on->toDateString() >= $date));
+            $currentShifts = $shifts->filter(fn (ShiftAssignment $row) => $row->starts_on->toDateString() <= $date
+                && ($row->ends_on === null || $row->ends_on->toDateString() >= $date));
+            $results[$date] = $this->resolveLoaded($day, $currentEmployment, $currentShifts);
+        }
+
+        return $results;
+    }
+
+    /** @param Collection<int, ShiftAssignment> $assignments */
+    private function resolveLoaded(CarbonImmutable $day, ?EmploymentAssignment $employment, Collection $assignments): ScheduleResolution
+    {
+        $date = $day->toDateString();
         if (! $employment) {
             return new ScheduleResolution('no_assignment', $date);
         }
-        $assignments = ShiftAssignment::query()->where('company_id', $employee->company_id)->where('employee_profile_id', $employee->id)
-            ->whereDate('starts_on', '<=', $date)->where(fn ($query) => $query->whereNull('ends_on')->orWhereDate('ends_on', '>=', $date))
-            ->with('template.location')->get();
         if ($assignments->isEmpty()) {
             return new ScheduleResolution('unscheduled', $date, timezone: $this->timezone($employment->location));
         }

@@ -297,14 +297,22 @@ class PayrollService
         }
         $flags = ['no_show_candidate', 'missing_punch', 'partial_leave_review', 'location_conflict', 'invalid_time', 'unscheduled_work', 'rest_day_work', 'leave_with_punch', 'in_progress'];
         $result = [];
+        $periodStart = $run->period_start->toDateString();
+        $periodEnd = $run->period_start->endOfMonth()->toDateString();
+        $today = now(config('hrms.display_timezone'))->toDateString();
         foreach (EmployeeProfile::query()->where('company_id', $run->company_id)->whereIn('id', $run->selected_employee_ids)->get() as $employee) {
-            $reviews = PayrollAttendanceReview::where('run_id', $run->id)->where('employee_profile_id', $employee->id)->get()->keyBy(fn ($review) => $review->business_date->toDateString());
+            $reviews = PayrollAttendanceReview::where('company_id', $run->company_id)->where('run_id', $run->id)->where('employee_profile_id', $employee->id)
+                ->get()->keyBy(fn ($review) => $review->business_date->toDateString());
+            $unpaidLeave = LeaveRequest::where('company_id', $run->company_id)->where('employee_profile_id', $employee->id)->where('status', 'approved')
+                ->whereDate('starts_on', '<=', $periodEnd)->whereDate('ends_on', '>=', $periodStart)
+                ->whereHas('type', fn ($q) => $q->where('is_paid', false))->get();
             foreach ($this->attendance->month($employee, CarbonImmutable::parse($run->period_start)) as $summary) {
                 $date = $summary->schedule->date;
-                if ($date > now(config('hrms.display_timezone'))->toDateString()) {
+                if ($date > $today) {
                     continue;
                 }
-                $leave = LeaveRequest::where('company_id', $run->company_id)->where('employee_profile_id', $employee->id)->where('status', 'approved')->whereDate('starts_on', '<=', $date)->whereDate('ends_on', '>=', $date)->whereHas('type', fn ($q) => $q->where('is_paid', false))->exists();
+                $leave = $unpaidLeave->contains(fn (LeaveRequest $request) => $request->starts_on->toDateString() <= $date
+                    && $request->ends_on->toDateString() >= $date);
                 $status = $leave ? 'unpaid_leave' : ($summary->schedule->scheduledMinutes > 0 && $summary->actualMinutes > $summary->schedule->scheduledMinutes ? 'overtime_candidate' : $summary->status);
                 if ((in_array($summary->status, $flags, true) || $leave || $status === 'overtime_candidate' || $reviews->has($date))
                     && (! $reviews->has($date) || $reviews[$date]->source_status !== $summary->status
