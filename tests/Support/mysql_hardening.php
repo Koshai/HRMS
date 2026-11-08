@@ -38,11 +38,13 @@ if (($argv[1] ?? '') === 'worker') {
         $id = match ($action) {
             'approve' => (function () use ($service, $actor, $targetId) {
                 $service->finalize($actor, PayrollRun::query()->findOrFail((int) $targetId));
+
                 return (int) $targetId;
             })(),
             'pay' => $service->payment($actor, PayrollEntry::query()->findOrFail((int) $targetId), $data)->id,
             'calculate' => (function () use ($service, $actor, $targetId) {
                 $service->calculate($actor, PayrollRun::query()->findOrFail((int) $targetId));
+
                 return (int) $targetId;
             })(),
             'review' => $service->review($actor, PayrollRun::query()->findOrFail((int) $targetId), EmployeeProfile::query()->findOrFail((int) $data['employee_id']),
@@ -68,7 +70,7 @@ function check(bool $condition, string $message): void
 }
 
 /** @param list<array{action: string, actor: int, target: int, payload: array<string, mixed>}> $jobs
- *  @return list<array<string, mixed>>
+ * @return list<array<string, mixed>>
  */
 function race(array $jobs): array
 {
@@ -95,15 +97,19 @@ function race(array $jobs): array
             stream_set_timeout($pipes[1], 20);
             $stdout = stream_get_contents($pipes[1]);
             $stderr = stream_get_contents($pipes[2]);
-            fclose($pipes[1]); fclose($pipes[2]);
+            fclose($pipes[1]);
+            fclose($pipes[2]);
             proc_close($process);
             $result = json_decode($stdout, true);
             check(is_array($result), 'Worker failed: '.$stderr.' '.$stdout);
             $results[] = $result;
         }
+
         return $results;
     } finally {
-        foreach (glob($barrier.'/*') ?: [] as $file) unlink($file);
+        foreach (glob($barrier.'/*') ?: [] as $file) {
+            unlink($file);
+        }
         rmdir($barrier);
     }
 }
@@ -157,7 +163,9 @@ $result = race([
     ['action' => 'review', 'actor' => $hr->id, 'target' => $run->id, 'payload' => ['employee_id' => $employee->id, 'date' => '2026-10-01', 'decision' => 'overtime', 'amount_minor' => 1000, 'reason' => 'Fictional approved amount']],
 ]);
 check(count(array_filter($result, fn ($r) => $r['result'] === 'ok')) === 2, 'Calculation/review race failed: '.json_encode($result));
-if ($run->fresh()->calculated_at === null) $service->calculate($hr, $run);
+if ($run->fresh()->calculated_at === null) {
+    $service->calculate($hr, $run);
+}
 $service->finalize($admin, $run->fresh());
 check((int) $run->entries()->sole()->net_minor === 101000, 'Review amount missing from finalized entry');
 
