@@ -2,13 +2,20 @@
 
 declare(strict_types=1);
 
+use App\Attendance\AttendanceRecord;
+use App\Attendance\AttendanceService;
+use App\Employees\AssignmentService;
 use App\Employees\EmployeeProfile;
 use App\Enums\Role;
 use App\Models\User;
+use App\Organization\Department;
+use App\Organization\Location;
+use App\Organization\Position;
 use App\Payroll\PayrollEntry;
 use App\Payroll\PayrollPayment;
 use App\Payroll\PayrollRun;
 use App\Payroll\PayrollService;
+use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -51,6 +58,7 @@ if (($argv[1] ?? '') === 'worker') {
                 $data['date'], $data['decision'], (int) $data['amount_minor'], $data['reason'])->id,
             'policy' => $service->policy($actor, $data)->id,
             'compensation' => $service->compensation($actor, EmployeeProfile::query()->findOrFail((int) $targetId), $data)->id,
+            'punch' => app(AttendanceService::class)->punch($actor, EmployeeProfile::query()->findOrFail((int) $targetId), $data['action'], $data['key'])->id,
             default => throw new RuntimeException('Unknown worker action'),
         };
         echo json_encode(['result' => 'ok', 'id' => $id], JSON_THROW_ON_ERROR);
@@ -119,6 +127,10 @@ $hr = User::factory()->create(['role' => Role::HR]);
 $admin = User::factory()->create(['role' => Role::Admin]);
 $worker = User::factory()->create();
 $employee = EmployeeProfile::create(['company_id' => $hr->company_id, 'user_id' => $worker->id, 'employee_number' => 'STRESS-'.bin2hex(random_bytes(4)), 'name' => 'Fictional Stress Employee']);
+$department = Department::firstOrCreate(['company_id' => $hr->company_id, 'name' => 'Stress Operations']);
+$position = Position::firstOrCreate(['company_id' => $hr->company_id, 'name' => 'Stress Officer']);
+$location = Location::firstOrCreate(['company_id' => $hr->company_id, 'name' => 'Stress Dhaka'], ['timezone' => 'Asia/Dhaka']);
+app(AssignmentService::class)->assign($employee, $department, $position, $location, CarbonImmutable::parse('2020-01-01'), null, null);
 $service = app(PayrollService::class);
 $service->policy($hr, ['effective_from' => '2020-01-01', 'effective_to' => '2026-12-31', 'currency' => 'BDT', 'proration_basis' => 'calendar_days', 'reason' => 'Disposable concurrency fixture']);
 $approvalRounds = 8;
@@ -185,7 +197,14 @@ $compensationRace = race([
 check(count(array_filter($compensationRace, fn ($r) => $r['result'] === 'ok')) === 1, 'Overlapping compensation race failed: '.json_encode($compensationRace));
 check((int) DB::table('compensation_agreements')->where('employee_profile_id', $employee->id)->count() === 1, 'Overlapping compensation was saved');
 
+$punchRace = race([
+    ['action' => 'punch', 'actor' => $worker->id, 'target' => $employee->id, 'payload' => ['action' => 'check_in', 'key' => 'stress-punch']],
+    ['action' => 'punch', 'actor' => $worker->id, 'target' => $employee->id, 'payload' => ['action' => 'check_in', 'key' => 'stress-punch']],
+]);
+check(count(array_filter($punchRace, fn ($r) => $r['result'] === 'ok')) === 2, 'Same-key attendance punch race failed: '.json_encode($punchRace));
+check(AttendanceRecord::where('employee_profile_id', $employee->id)->where('idempotency_key', 'stress-punch')->count() === 1, 'Duplicate attendance punch saved');
+
 $seconds = round(microtime(true) - $started, 3);
 echo json_encode(['status' => 'passed', 'processes_per_race' => 2, 'approval_repetitions' => $approvalRounds,
-    'payment_races' => 3, 'calculate_review_races' => 1, 'policy_races' => 1, 'compensation_races' => 1, 'deadlocks_or_timeouts' => 0,
+    'payment_races' => 3, 'calculate_review_races' => 1, 'policy_races' => 1, 'compensation_races' => 1, 'attendance_punch_races' => 1, 'deadlocks_or_timeouts' => 0,
     'elapsed_seconds' => $seconds], JSON_THROW_ON_ERROR).PHP_EOL;
