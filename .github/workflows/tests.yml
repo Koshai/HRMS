@@ -109,3 +109,24 @@ jobs:
           DB_USERNAME: root
           DB_PASSWORD: test_password
         run: php tests/Support/mysql_performance.php
+      - name: Rehearse fictional MySQL backup and restore
+        env:
+          APP_ENV: testing
+          DB_CONNECTION: mysql
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_DATABASE: hrms_test
+          DB_USERNAME: root
+          DB_PASSWORD: test_password
+        run: |
+          set -euo pipefail
+          php tests/Support/mysql_recovery_fingerprint.php > "$RUNNER_TEMP/hrms-source-fingerprint.json"
+          container=$(docker ps --filter ancestor=mysql:8.4 --format '{{.ID}}' | head -n 1)
+          test -n "$container"
+          docker exec -e MYSQL_PWD=test_password "$container" mysqldump -u root --single-transaction --set-gtid-purged=OFF --no-tablespaces hrms_test > "$RUNNER_TEMP/hrms-fictional.sql"
+          test -s "$RUNNER_TEMP/hrms-fictional.sql"
+          docker exec -e MYSQL_PWD=test_password "$container" mysql -u root -e 'CREATE DATABASE hrms_restore_test'
+          docker exec -i -e MYSQL_PWD=test_password "$container" mysql -u root hrms_restore_test < "$RUNNER_TEMP/hrms-fictional.sql"
+          DB_DATABASE=hrms_restore_test php tests/Support/mysql_recovery_fingerprint.php > "$RUNNER_TEMP/hrms-restored-fingerprint.json"
+          cmp "$RUNNER_TEMP/hrms-source-fingerprint.json" "$RUNNER_TEMP/hrms-restored-fingerprint.json"
+          echo 'Fictional MySQL restore counts, row digests and selected references match.'

@@ -48,6 +48,12 @@ On a pack page, use the **Review readiness checklist** to see which preparation 
 
 For cPanel deployment, run the ordinary Laravel migration after a backup. This adds compliance-only tables and a small official-source register; it does not alter existing payroll tables, require a queue worker, or call an outside service during payroll calculation. For a statutory update, collect the official amended text, document publication and operative dates separately, obtain signed qualified example calculations, create a new pack version, and review it independently before any controlled rollout. Never edit a finalized run to apply a new rule.
 
+### Staging and account onboarding
+
+An operator can run the read-only `php artisan hrms:preflight` command after deploying and migrating a staging release. Resolve every **BLOCK** before promotion. The command checks configuration, PHP extensions, built assets, writable runtime directories, database access and pending migrations without printing secret values. It does not test the host's public document root, actual email delivery or a backup restore; use the [deployment runbook](../operations/deployment.md) for those gates.
+
+For fictional staging, provision an Admin from a trusted terminal, then invite HR and staff from the employee page. A new staff member uses the emailed reset link to set a password, signs in and verifies their email. The reset link expires after 60 minutes, is single use, and a resend is throttled for 60 seconds. If delivery fails, the linked account remains unverified; an authorized Admin or HR can retry from the employee page after mail is repaired. Create organization, reporting assignments, shifts and company-approved leave policies before starting attendance. Payroll, payslip and payment demonstrations must use fictional amounts only.
+
 Payroll stores money as integer minor units. For BDT, enter poisha: `3100000` means BDT 31,000.00. The portal does not calculate statutory tax, legal overtime rates or transfer money. Have local payroll and legal advisers review your configured policy and each manual withholding or overtime decision before production use.
 
 1. Admin or HR opens **Payroll**. Create a dated policy with currency BDT and a documented proration basis. Calendar-day proration divides monthly salary by the number of days in that month; scheduled-day proration divides by published scheduled days. Keep effective policy versions separate without overlapping dates.
