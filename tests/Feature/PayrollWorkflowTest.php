@@ -310,8 +310,17 @@ class PayrollWorkflowTest extends TestCase
         }
         $otherCompanyId = DB::table('companies')->insertGetId(['public_id' => (string) Str::uuid(), 'created_at' => now(), 'updated_at' => now()]);
         $otherHr = User::factory()->create(['role' => Role::HR, 'company_id' => $otherCompanyId]);
-        $this->expectException(NotFoundHttpException::class);
-        $service->calculate($otherHr, $run);
+        $run->company_id = $otherCompanyId;
+        $employee->company_id = $otherCompanyId;
+        foreach ([fn () => $service->calculate($otherHr, $run),
+            fn () => $service->compensation($otherHr, $employee, ['effective_from' => '2026-11-01'])] as $action) {
+            try {
+                $action();
+                $this->fail('Forged model company bypassed persisted tenant check');
+            } catch (NotFoundHttpException $e) {
+                $this->assertSame(404, $e->getStatusCode());
+            }
+        }
     }
 
     public function test_reconciliation_csv_is_restricted_and_escapes_spreadsheet_formulas(): void

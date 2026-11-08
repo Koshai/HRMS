@@ -41,7 +41,8 @@ class PayrollService
             if ($employee->company_id !== $actor->company_id) {
                 abort(404);
             }
-            EmployeeProfile::query()->whereKey($employee->id)->lockForUpdate()->firstOrFail();
+            $employee = EmployeeProfile::query()->whereKey($employee->id)->lockForUpdate()->firstOrFail();
+            $this->authorized($actor, $employee->company_id);
             $this->checkDates(CompensationAgreement::query()->where('company_id', $actor->company_id)->where('employee_profile_id', $employee->id), $data['effective_from'], $data['effective_to'] ?? null);
 
             return CompensationAgreement::create($data + ['company_id' => $actor->company_id, 'employee_profile_id' => $employee->id, 'actor_user_id' => $actor->id]);
@@ -100,6 +101,7 @@ class PayrollService
 
         return DB::transaction(function () use ($actor, $run, $employee, $date, $decision, $amount, $reason) {
             $run = PayrollRun::query()->whereKey($run->id)->lockForUpdate()->firstOrFail();
+            $this->authorized($actor, $run->company_id);
             $this->draft($run);
             if ($employee->company_id !== $run->company_id || ! in_array($employee->id, $run->selected_employee_ids, true) || $date < $run->period_start->toDateString() || $date > $run->period_start->endOfMonth()->toDateString()) {
                 abort(404);
@@ -134,8 +136,10 @@ class PayrollService
 
         return DB::transaction(function () use ($actor, $review, $decision, $amount, $reason, $revisionReason) {
             $run = PayrollRun::query()->whereKey($review->run_id)->lockForUpdate()->firstOrFail();
+            $this->authorized($actor, $run->company_id);
             $this->draft($run);
             $review = PayrollAttendanceReview::query()->whereKey($review->id)->lockForUpdate()->firstOrFail();
+            abort_unless($review->company_id === $run->company_id, 404);
             $employee = EmployeeProfile::query()->where('company_id', $run->company_id)->whereKey($review->employee_profile_id)->firstOrFail();
             if (! in_array($decision, ['neutral', 'overtime', 'unpaid'], true) || ($decision === 'neutral' && $amount !== 0)
                 || ($decision !== 'neutral' && $amount <= 0) || trim($reason) === '' || trim($revisionReason) === '') {
@@ -164,6 +168,7 @@ class PayrollService
 
         return DB::transaction(function () use ($actor, $run, $employee, $data) {
             $run = PayrollRun::query()->whereKey($run->id)->lockForUpdate()->firstOrFail();
+            $this->authorized($actor, $run->company_id);
             $this->draft($run);
             if ($employee->company_id !== $run->company_id || ! in_array($employee->id, $run->selected_employee_ids, true)) {
                 abort(404);
@@ -187,8 +192,9 @@ class PayrollService
     public function calculate(User $actor, PayrollRun $run): void
     {
         $this->authorized($actor, $run->company_id);
-        DB::transaction(function () use ($run) {
+        DB::transaction(function () use ($actor, $run) {
             $run = PayrollRun::whereKey($run->id)->lockForUpdate()->firstOrFail();
+            $this->authorized($actor, $run->company_id);
             $this->draft($run);
             $policy = PayrollPolicy::findOrFail($run->policy_id);
             $employees = EmployeeProfile::query()->where('company_id', $run->company_id)->whereIn('id', $run->selected_employee_ids)->get();
@@ -316,6 +322,7 @@ class PayrollService
         $this->authorized($actor, $run->company_id);
         DB::transaction(function () use ($actor, $run) {
             $run = PayrollRun::whereKey($run->id)->lockForUpdate()->firstOrFail();
+            $this->authorized($actor, $run->company_id);
             $this->draft($run);
             if ($run->prepared_by_user_id === $actor->id) {
                 throw ValidationException::withMessages(['approval' => 'A second authorized person must approve.']);
@@ -340,8 +347,9 @@ class PayrollService
     public function release(User $actor, PayrollRun $run): void
     {
         $this->authorized($actor, $run->company_id);
-        DB::transaction(function () use ($run) {
+        DB::transaction(function () use ($actor, $run) {
             $run = PayrollRun::whereKey($run->id)->lockForUpdate()->firstOrFail();
+            $this->authorized($actor, $run->company_id);
             if ($run->status !== 'finalized') {
                 throw ValidationException::withMessages(['release' => 'Approve the run first.']);
             }
@@ -358,6 +366,7 @@ class PayrollService
 
         return DB::transaction(function () use ($actor, $entry, $data) {
             $entry = PayrollEntry::whereKey($entry->id)->lockForUpdate()->firstOrFail();
+            $this->authorized($actor, $entry->company_id);
             $run = PayrollRun::findOrFail($entry->run_id);
             if ($run->status !== 'finalized') {
                 throw ValidationException::withMessages(['payment' => 'Approve the run first.']);
