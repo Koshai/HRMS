@@ -147,7 +147,7 @@ class PayrollController extends Controller
     {
         Gate::authorize('payroll-manage');
         $this->run($request, $run);
-        $service->calculate($run);
+        $service->calculate($request->user(), $run);
 
         return back()->with('status', 'Draft calculated. Review amounts before approval.');
     }
@@ -165,7 +165,7 @@ class PayrollController extends Controller
     {
         Gate::authorize('payroll-manage');
         $this->run($request, $run);
-        $service->release($run);
+        $service->release($request->user(), $run);
 
         return back()->with('status', 'Payslips released.');
     }

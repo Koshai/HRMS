@@ -11,6 +11,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 
 class PayrollService
@@ -20,6 +21,8 @@ class PayrollService
     /** @param array<string, mixed> $data */
     public function policy(User $actor, array $data): PayrollPolicy
     {
+        $this->authorized($actor, $actor->company_id);
+
         return DB::transaction(function () use ($actor, $data) {
             DB::table('companies')->where('id', $actor->company_id)->lockForUpdate()->first();
             $this->checkDates(PayrollPolicy::query()->where('company_id', $actor->company_id), $data['effective_from'], $data['effective_to'] ?? null);
@@ -31,6 +34,8 @@ class PayrollService
     /** @param array<string, mixed> $data */
     public function compensation(User $actor, EmployeeProfile $employee, array $data): CompensationAgreement
     {
+        $this->authorized($actor, $employee->company_id);
+
         return DB::transaction(function () use ($actor, $employee, $data) {
             if ($employee->company_id !== $actor->company_id) {
                 abort(404);
@@ -60,6 +65,7 @@ class PayrollService
     /** @param list<int> $employeeIds */
     public function createRun(User $actor, string $month, string $kind, array $employeeIds, ?string $reason = null): PayrollRun
     {
+        $this->authorized($actor, $actor->company_id);
         $date = CarbonImmutable::parse($month)->startOfMonth();
 
         return DB::transaction(function () use ($actor, $date, $kind, $reason, $employeeIds) {
@@ -80,6 +86,8 @@ class PayrollService
 
     public function review(User $actor, PayrollRun $run, EmployeeProfile $employee, string $date, string $decision, int $amount, string $reason): PayrollAttendanceReview
     {
+        $this->authorized($actor, $run->company_id);
+
         return DB::transaction(function () use ($actor, $run, $employee, $date, $decision, $amount, $reason) {
             $run = PayrollRun::query()->whereKey($run->id)->lockForUpdate()->firstOrFail();
             $this->draft($run);
@@ -90,9 +98,17 @@ class PayrollService
             if (! in_array($decision, ['neutral', 'overtime', 'unpaid'], true) || ($decision === 'neutral' && $amount !== 0) || ($decision !== 'neutral' && $amount <= 0)) {
                 throw ValidationException::withMessages(['decision' => 'A financial decision needs a positive minor-unit amount.']);
             }
-            $review = PayrollAttendanceReview::firstOrCreate(['company_id' => $run->company_id, 'run_id' => $run->id, 'employee_profile_id' => $employee->id, 'business_date' => $date], [
-                'source_status' => $summary->status, 'decision' => $decision, 'amount_minor' => $amount, 'actor_user_id' => $actor->id, 'reason' => $reason,
-            ]);
+            $review = PayrollAttendanceReview::query()->where('company_id', $run->company_id)->where('run_id', $run->id)
+                ->where('employee_profile_id', $employee->id)->whereDate('business_date', $date)->first();
+            if (! $review) {
+                $review = PayrollAttendanceReview::create(['company_id' => $run->company_id, 'run_id' => $run->id, 'employee_profile_id' => $employee->id,
+                    'business_date' => $date, 'source_status' => $summary->status, 'decision' => $decision, 'amount_minor' => $amount,
+                    'actor_user_id' => $actor->id, 'reason' => $reason]);
+            }
+            if (! $review->wasRecentlyCreated && ($review->source_status !== $summary->status || $review->decision !== $decision
+                || (int) $review->amount_minor !== $amount || $review->reason !== $reason || (int) $review->actor_user_id !== $actor->id)) {
+                throw ValidationException::withMessages(['business_date' => 'This date already has a different financial review. Use a reviewed correction.']);
+            }
             if ($review->wasRecentlyCreated) {
                 $run->update(['calculated_at' => null]);
             }
@@ -104,6 +120,8 @@ class PayrollService
     /** @param array<string, mixed> $data */
     public function adjustment(User $actor, PayrollRun $run, EmployeeProfile $employee, array $data): PayrollAdjustment
     {
+        $this->authorized($actor, $run->company_id);
+
         return DB::transaction(function () use ($actor, $run, $employee, $data) {
             $run = PayrollRun::query()->whereKey($run->id)->lockForUpdate()->firstOrFail();
             $this->draft($run);
@@ -113,6 +131,11 @@ class PayrollService
             $adjustment = PayrollAdjustment::firstOrCreate(['company_id' => $run->company_id, 'run_id' => $run->id, 'idempotency_key' => $data['idempotency_key']], $data + [
                 'employee_profile_id' => $employee->id, 'actor_user_id' => $actor->id,
             ]);
+            if (! $adjustment->wasRecentlyCreated && ((int) $adjustment->employee_profile_id !== $employee->id || $adjustment->kind !== $data['kind']
+                || (int) $adjustment->amount_minor !== (int) $data['amount_minor'] || $adjustment->reason !== $data['reason']
+                || (int) $adjustment->actor_user_id !== $actor->id)) {
+                throw ValidationException::withMessages(['idempotency_key' => 'This adjustment key was used for different details.']);
+            }
             if ($adjustment->wasRecentlyCreated) {
                 $run->update(['calculated_at' => null]);
             }
@@ -121,8 +144,9 @@ class PayrollService
         });
     }
 
-    public function calculate(PayrollRun $run): void
+    public function calculate(User $actor, PayrollRun $run): void
     {
+        $this->authorized($actor, $run->company_id);
         DB::transaction(function () use ($run) {
             $run = PayrollRun::whereKey($run->id)->lockForUpdate()->firstOrFail();
             $this->draft($run);
@@ -247,6 +271,7 @@ class PayrollService
 
     public function finalize(User $actor, PayrollRun $run): void
     {
+        $this->authorized($actor, $run->company_id);
         DB::transaction(function () use ($actor, $run) {
             $run = PayrollRun::whereKey($run->id)->lockForUpdate()->firstOrFail();
             $this->draft($run);
@@ -270,8 +295,9 @@ class PayrollService
         });
     }
 
-    public function release(PayrollRun $run): void
+    public function release(User $actor, PayrollRun $run): void
     {
+        $this->authorized($actor, $run->company_id);
         DB::transaction(function () use ($run) {
             $run = PayrollRun::whereKey($run->id)->lockForUpdate()->firstOrFail();
             if ($run->status !== 'finalized') {
@@ -286,6 +312,8 @@ class PayrollService
     /** @param array<string, mixed> $data */
     public function payment(User $actor, PayrollEntry $entry, array $data): PayrollPayment
     {
+        $this->authorized($actor, $entry->company_id);
+
         return DB::transaction(function () use ($actor, $entry, $data) {
             $entry = PayrollEntry::whereKey($entry->id)->lockForUpdate()->firstOrFail();
             $run = PayrollRun::findOrFail($entry->run_id);
@@ -294,6 +322,11 @@ class PayrollService
             }
             $existing = PayrollPayment::where('company_id', $entry->company_id)->where('entry_id', $entry->id)->where('idempotency_key', $data['idempotency_key'])->first();
             if ($existing) {
+                if ((int) $existing->amount_minor !== (int) $data['amount_minor'] || $existing->paid_on->toDateString() !== $data['paid_on']
+                    || $existing->reference !== $data['reference'] || (int) $existing->actor_user_id !== $actor->id) {
+                    throw ValidationException::withMessages(['idempotency_key' => 'This payment key was used for different details.']);
+                }
+
                 return $existing;
             }
             if ($entry->payments()->where('reference', $data['reference'])->exists()) {
@@ -312,6 +345,12 @@ class PayrollService
         if ($run->status !== 'draft') {
             throw ValidationException::withMessages(['run' => 'Finalized payroll is immutable. Create a supplemental run.']);
         }
+    }
+
+    private function authorized(User $actor, int $companyId): void
+    {
+        Gate::forUser($actor)->authorize('payroll-manage');
+        abort_unless($actor->company_id === $companyId, 404);
     }
 
     /**

@@ -65,7 +65,7 @@ class PayrollWorkflowTest extends TestCase
         $worker = User::factory()->create();
         $employee = $this->staff($worker, 'P-1', '2026-10-16');
         [$service, $run] = $this->setupPayroll($hr, $employee);
-        $service->calculate($run);
+        $service->calculate($hr, $run);
         $entry = PayrollEntry::sole();
         $this->assertSame(1760000, (int) $entry->gross_minor); // 16 of 31 days, base plus allowance.
         $this->assertSame($entry->gross_minor, $entry->net_minor);
@@ -78,7 +78,7 @@ class PayrollWorkflowTest extends TestCase
             $this->assertArrayHasKey('approval', $e->errors());
         }
         $service->finalize($admin, $run);
-        $service->release($run);
+        $service->release($hr, $run);
         $this->get(route('payroll.payslip', $entry))->assertOk()->assertSee('17,600.00');
         $payment = ['amount_minor' => 1000000, 'paid_on' => '2026-11-07', 'reference' => 'MANUAL-1', 'idempotency_key' => 'retry-1'];
         $service->payment($hr, $entry, $payment);
@@ -102,10 +102,10 @@ class PayrollWorkflowTest extends TestCase
         $employee = $this->staff($worker, 'P-1');
         $this->staff($other, 'P-2');
         [$service, $run] = $this->setupPayroll($hr, $employee);
-        $service->calculate($run);
+        $service->calculate($hr, $run);
         $admin = User::factory()->create(['role' => Role::Admin]);
         $service->finalize($admin, $run);
-        $service->release($run);
+        $service->release($hr, $run);
         $entry = PayrollEntry::sole();
         $this->actingAs($manager)->get(route('payroll.index'))->assertForbidden();
         $this->get(route('payroll.compensation', $employee))->assertForbidden();
@@ -147,7 +147,7 @@ class PayrollWorkflowTest extends TestCase
         }
         $service->compensation($hr, $employee, $base + ['effective_from' => '2026-10-16', 'monthly_base_minor' => 6200000]);
         $run = $service->createRun($hr, '2026-10-01', 'regular', [$employee->id]);
-        $service->calculate($run);
+        $service->calculate($hr, $run);
         $entry = PayrollEntry::sole();
         $this->assertSame(4700000, (int) $entry->gross_minor);
         $this->assertCount(2, $entry->snapshot['lines']);
@@ -166,7 +166,7 @@ class PayrollWorkflowTest extends TestCase
         $shiftService->assign($hr, $employee, $shift, '2026-10-01', '2026-10-01', [4], 'Test shift', 'one-day');
         CarbonImmutable::setTestNow('2026-11-07 12:00:00 UTC');
         $this->assertCount(1, $service->unresolved($run));
-        $service->calculate($run);
+        $service->calculate($hr, $run);
         $entry = PayrollEntry::sole();
         $this->assertSame(3410000, (int) $entry->gross_minor);
         $this->assertSame(0, (int) $entry->deductions_minor);
@@ -185,7 +185,7 @@ class PayrollWorkflowTest extends TestCase
         } catch (ValidationException $e) {
             $this->assertArrayHasKey('approval', $e->errors());
         }
-        $service->calculate($run);
+        $service->calculate($hr, $run);
         $service->finalize($admin, $run->fresh());
         $this->assertSame(3410000, (int) PayrollEntry::where('run_id', $run->id)->sole()->net_minor);
     }
@@ -197,13 +197,13 @@ class PayrollWorkflowTest extends TestCase
         $worker = User::factory()->create();
         $employee = $this->staff($worker, 'P-1');
         [$service, $run] = $this->setupPayroll($hr, $employee);
-        $service->calculate($run);
+        $service->calculate($hr, $run);
         $service->finalize($admin, $run->fresh());
         $original = PayrollEntry::sole();
         $snapshot = $original->snapshot;
         $supplemental = $service->createRun($hr, '2026-10-01', 'supplemental', [$employee->id], 'Correction to original');
         $service->adjustment($hr, $supplemental, $employee, ['kind' => 'correction_credit', 'amount_minor' => 12345, 'idempotency_key' => 'correct-1', 'reason' => 'Verified earlier omission']);
-        $service->calculate($supplemental);
+        $service->calculate($hr, $supplemental);
         $service->finalize($admin, $supplemental->fresh());
         $this->assertSame($snapshot, $original->fresh()->snapshot);
         $this->assertSame(12345, (int) PayrollEntry::where('run_id', $supplemental->id)->sole()->net_minor);
@@ -217,5 +217,44 @@ class PayrollWorkflowTest extends TestCase
         $employee = $this->staff($hr, 'P-HR');
         $employee->update(['status' => 'inactive']);
         $this->actingAs($hr)->get(route('payroll.index'))->assertRedirect(route('login'));
+    }
+
+    public function test_conflicting_financial_retries_are_rejected_without_mutation(): void
+    {
+        $hr = User::factory()->create(['role' => Role::HR]);
+        $admin = User::factory()->create(['role' => Role::Admin]);
+        $worker = User::factory()->create();
+        $employee = $this->staff($worker, 'P-1');
+        [$service, $run] = $this->setupPayroll($hr, $employee);
+        $adjustment = ['kind' => 'bonus', 'amount_minor' => 25000, 'idempotency_key' => 'bonus-1', 'reason' => 'Fictional award'];
+        $first = $service->adjustment($hr, $run, $employee, $adjustment);
+        $this->assertSame($first->id, $service->adjustment($hr, $run, $employee, $adjustment)->id);
+        try {
+            $service->adjustment($hr, $run, $employee, array_replace($adjustment, ['amount_minor' => 30000]));
+            $this->fail('Conflicting adjustment retry accepted');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('idempotency_key', $e->errors());
+        }
+        $review = $service->review($hr, $run, $employee, '2026-10-01', 'neutral', 0, 'No pay change');
+        $this->assertSame($review->id, $service->review($hr, $run, $employee, '2026-10-01', 'neutral', 0, 'No pay change')->id);
+        try {
+            $service->review($hr, $run, $employee, '2026-10-01', 'unpaid', 1000, 'Different decision');
+            $this->fail('Conflicting review retry accepted');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('business_date', $e->errors());
+        }
+        $service->calculate($hr, $run);
+        $service->finalize($admin, $run->fresh());
+        $entry = PayrollEntry::sole();
+        $payment = ['amount_minor' => 100000, 'paid_on' => '2026-11-07', 'reference' => 'MANUAL-A', 'idempotency_key' => 'pay-1'];
+        $paid = $service->payment($hr, $entry, $payment);
+        $this->assertSame($paid->id, $service->payment($hr, $entry, $payment)->id);
+        try {
+            $service->payment($hr, $entry, array_replace($payment, ['amount_minor' => 200000]));
+            $this->fail('Conflicting payment retry accepted');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('idempotency_key', $e->errors());
+        }
+        $this->assertSame(1, PayrollPayment::count());
     }
 }

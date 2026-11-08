@@ -32,7 +32,7 @@ class PayrollDemoSeeder extends Seeder
         }
         $run = $service->createRun($hr, '2026-10-01', 'regular', [$employee->id]);
         if ($run->status === 'draft') {
-            $service->calculate($run);
+            $service->calculate($hr, $run);
         }
     }
 }
