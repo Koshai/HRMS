@@ -255,7 +255,10 @@ check($correction->decision()->count() <= 1 && AttendanceRecord::where('idempote
 
 $template = app(ShiftScheduleService::class)->createTemplate($hr, $location, ['code' => 'STRESS-'.bin2hex(random_bytes(3)), 'name' => 'Fictional stress shift',
     'starts_at_local' => '09:00', 'ends_at_local' => '17:00', 'unpaid_break_minutes' => 60, 'grace_in_minutes' => 10, 'grace_out_minutes' => 5]);
-$shiftPayload = ['template_id' => $template->id, 'start' => '2026-11-09', 'end' => '2026-11-30', 'weekdays' => [1, 2, 3, 4, 5], 'reason' => 'Fictional shift publication', 'key' => 'stress-shift'];
+$shiftStart = CarbonImmutable::parse((CarbonImmutable::now('Asia/Dhaka')->year + 1).'-03-01', 'Asia/Dhaka')->next('Monday');
+$shiftEnd = $shiftStart->addDays(21);
+$replacementStart = $shiftStart->addDays(7);
+$shiftPayload = ['template_id' => $template->id, 'start' => $shiftStart->toDateString(), 'end' => $shiftEnd->toDateString(), 'weekdays' => [1, 2, 3, 4, 5], 'reason' => 'Fictional shift publication', 'key' => 'stress-shift'];
 $shiftRace = race([
     ['action' => 'shift', 'actor' => $hr->id, 'target' => $employee->id, 'payload' => $shiftPayload],
     ['action' => 'shift', 'actor' => $hr->id, 'target' => $employee->id, 'payload' => $shiftPayload],
@@ -268,19 +271,19 @@ LeavePolicy::create(['company_id' => $hr->company_id, 'leave_type_id' => $leaveT
     'effective_from' => '2020-01-01', 'annual_units' => 40, 'allow_half_day' => true, 'allow_negative' => false,
     'approval_role' => 'hr', 'working_weekdays' => '1,2,3,4,5']);
 $leave = app(LeaveService::class);
-$leave->grant($hr, $employee, $leaveType, 2026, 40, 'Fictional opening grant', 'stress-grant');
-$shiftLeave = $leave->request($worker, $employee, $leaveType, '2026-11-16', '2026-11-17', null, 'Fictional shift leave overlap', 'stress-shift-leave');
+$leave->grant($hr, $employee, $leaveType, $shiftStart->year, 40, 'Fictional opening grant', 'stress-grant');
+$shiftLeave = $leave->request($worker, $employee, $leaveType, $replacementStart->toDateString(), $replacementStart->addDay()->toDateString(), null, 'Fictional shift leave overlap', 'stress-shift-leave');
 $expectedCharges = $shiftLeave->charges()->pluck('units', 'leave_year')->all();
 $replacement = app(ShiftScheduleService::class)->createTemplate($hr, $location, ['code' => 'REPL-'.bin2hex(random_bytes(3)), 'name' => 'Fictional replacement shift',
     'starts_at_local' => '10:00', 'ends_at_local' => '18:00', 'unpaid_break_minutes' => 60, 'grace_in_minutes' => 10, 'grace_out_minutes' => 5]);
 $shiftLeaveRace = race([
-    ['action' => 'shift', 'actor' => $hr->id, 'target' => $employee->id, 'payload' => ['template_id' => $replacement->id, 'start' => '2026-11-16', 'end' => '2026-11-30', 'weekdays' => [1, 2, 3, 4, 5], 'reason' => 'Fictional supersession', 'key' => 'stress-replacement', 'supersedes_id' => ShiftAssignment::where('idempotency_key', 'stress-shift')->sole()->id]],
+    ['action' => 'shift', 'actor' => $hr->id, 'target' => $employee->id, 'payload' => ['template_id' => $replacement->id, 'start' => $replacementStart->toDateString(), 'end' => $shiftEnd->toDateString(), 'weekdays' => [1, 2, 3, 4, 5], 'reason' => 'Fictional supersession', 'key' => 'stress-replacement', 'supersedes_id' => ShiftAssignment::where('idempotency_key', 'stress-shift')->sole()->id]],
     ['action' => 'leave_decide', 'actor' => $hr->id, 'target' => $shiftLeave->id, 'payload' => ['action' => 'approved', 'reason' => 'Fictional approval during shift change']],
 ]);
 check(count(array_filter($shiftLeaveRace, fn ($r) => $r['result'] === 'ok')) === 2, 'Shift/leave race failed: '.json_encode($shiftLeaveRace));
 check($shiftLeave->charges()->pluck('units', 'leave_year')->all() === $expectedCharges, 'Shift change altered approved leave charges');
 check(LeaveBalanceEntry::where('leave_request_id', $shiftLeave->id)->where('kind', 'consumption')->count() === count($expectedCharges), 'Shift/leave race duplicated consumption');
-$request = $leave->request($worker, $employee, $leaveType, '2026-11-09', '2026-11-10', null, 'Fictional family visit', 'stress-leave');
+$request = $leave->request($worker, $employee, $leaveType, $shiftStart->toDateString(), $shiftStart->addDay()->toDateString(), null, 'Fictional family visit', 'stress-leave');
 $approval = ['action' => 'approved', 'reason' => 'Fictional coverage arranged'];
 $leaveApprovalRace = race([
     ['action' => 'leave_decide', 'actor' => $hr->id, 'target' => $request->id, 'payload' => $approval],
