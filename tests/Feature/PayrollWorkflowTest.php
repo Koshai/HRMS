@@ -368,9 +368,11 @@ class PayrollWorkflowTest extends TestCase
         $this->assertSame(1, PayrollReviewRevision::count());
         $service->calculate($hr, $run);
         $service->finalize($admin, $run->fresh());
+        $service->release($hr, $run->fresh());
         $entry = PayrollEntry::sole();
         foreach ([fn () => $entry->update(['gross_minor' => 1]), fn () => $entry->delete(),
             fn () => $run->fresh()->update(['status' => 'draft']), fn () => $run->fresh()->delete(),
+            fn () => $run->fresh()->update(['released_at' => now()->addDay()]),
             fn () => $review->fresh()->update(['amount_minor' => 100])] as $change) {
             try {
                 $change();

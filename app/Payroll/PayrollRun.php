@@ -27,8 +27,12 @@ class PayrollRun extends Model
     protected static function booted(): void
     {
         static::updating(function (self $run): void {
-            if ($run->getOriginal('status') === 'finalized' && array_diff(array_keys($run->getDirty()), ['released_at', 'updated_at']) !== []) {
-                throw ValidationException::withMessages(['run' => 'Finalized payroll cannot be changed.']);
+            if ($run->getOriginal('status') === 'finalized') {
+                $changed = array_diff(array_keys($run->getDirty()), ['released_at', 'updated_at']);
+                $releaseChanged = $run->isDirty('released_at') && ($run->getOriginal('released_at') !== null || $run->released_at === null);
+                if ($changed !== [] || $releaseChanged) {
+                    throw ValidationException::withMessages(['run' => 'Finalized payroll cannot be changed.']);
+                }
             }
         });
         static::deleting(function (self $run): void {
