@@ -2,6 +2,8 @@
 
 This procedure is for a **fictional-data staging deployment**. A real host, live mail delivery, and a production database have not been exercised by CI. Use a named operations owner and record the release commit, hosting account, backup ID, migration batch, and acceptance decision in a private change record. Do not put credentials, employee data, reset links, or backup files in this repository or CI artifacts.
 
+For qualification on a selected hosting account, use the [target-host acceptance worksheet](target-host-acceptance.md). Until it has observed evidence and owner sign-off, the actual host remains unqualified regardless of CI status.
+
 ## Capability decision
 
 | Capability | Current release classification | Gate before broader use |

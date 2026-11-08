@@ -23,3 +23,13 @@ Only fictional data and disposable test databases are in scope. Keep this record
 No production host, real employee database, actual mail delivery, bank transfer or government filing was accessed. Automated HTTP checks must not be reported as browser acceptance.
 
 Local gates and the CI application job passed: **126 application tests / 677 assertions**, Pint, PHPStan and frontend build. Local Blade compilation passed. A local read-only `hrms:preflight` invocation correctly returned nonzero for development settings, SQLite, log mail and pending local migrations; it made no repair. All automated results above apply to code commit `06f7be1` and [CI run 42450682586](https://github.com/Koshai/HRMS/actions/runs/42450682586).
+
+## Target-host qualification follow-up
+
+**HOST QUALIFICATION BLOCKED — awaiting an explicitly authorized staging host.** No selected subdomain/account, approved access path, disposable host database or protected staging mail capture was supplied. No real web/CLI parity, document-root/TLS, host preflight, host restore, hosted mail or target-host browser observation occurred. Each remains **OPEN**, never PASS. The [target-host acceptance worksheet](../operations/target-host-acceptance.md) gives the owner executable checks and a sign-off table. [CI run 42450842211](https://github.com/Koshai/HRMS/actions/runs/42450842211) remains evidence of a disposable CI rehearsal only.
+
+| Decision | Current result | Reason |
+| --- | --- | --- |
+| Actual fictional staging host | **NO-GO for qualification** | No selected/authorized host or observed host checks |
+| Restricted real-data pilot | **NO-GO** | Host, privacy/security, policy, mail, tenant/browser and owner approval unresolved |
+| Real statutory payroll | **BLOCKED** | Qualified legal/payroll sign-off and approved calculation handlers absent |
