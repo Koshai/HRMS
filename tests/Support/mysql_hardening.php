@@ -120,7 +120,7 @@ $admin = User::factory()->create(['role' => Role::Admin]);
 $worker = User::factory()->create();
 $employee = EmployeeProfile::create(['company_id' => $hr->company_id, 'user_id' => $worker->id, 'employee_number' => 'STRESS-'.bin2hex(random_bytes(4)), 'name' => 'Fictional Stress Employee']);
 $service = app(PayrollService::class);
-$service->policy($hr, ['effective_from' => '2020-01-01', 'currency' => 'BDT', 'proration_basis' => 'calendar_days', 'reason' => 'Disposable concurrency fixture']);
+$service->policy($hr, ['effective_from' => '2020-01-01', 'effective_to' => '2026-12-31', 'currency' => 'BDT', 'proration_basis' => 'calendar_days', 'reason' => 'Disposable concurrency fixture']);
 $approvalRounds = 8;
 for ($i = 0; $i < $approvalRounds; $i++) {
     $run = $service->createRun($hr, '2026-10-01', 'supplemental', [$employee->id], 'Disposable concurrency fixture');
@@ -169,7 +169,23 @@ if ($run->fresh()->calculated_at === null) {
 $service->finalize($admin, $run->fresh());
 check((int) $run->entries()->sole()->net_minor === 101000, 'Review amount missing from finalized entry');
 
+$policyPayload = ['effective_from' => '2027-01-01', 'currency' => 'BDT', 'proration_basis' => 'calendar_days', 'reason' => 'Future fictional policy'];
+$policyRace = race([
+    ['action' => 'policy', 'actor' => $hr->id, 'target' => 0, 'payload' => $policyPayload],
+    ['action' => 'policy', 'actor' => $admin->id, 'target' => 0, 'payload' => $policyPayload],
+]);
+check(count(array_filter($policyRace, fn ($r) => $r['result'] === 'ok')) === 1, 'Overlapping policy race failed: '.json_encode($policyRace));
+check((int) DB::table('payroll_policies')->where('company_id', $hr->company_id)->where('effective_from', '>=', '2027-01-01')->count() === 1, 'Overlapping policy was saved');
+
+$compensationPayload = ['effective_from' => '2027-01-01', 'currency' => 'BDT', 'monthly_base_minor' => 120000, 'components' => [], 'reason' => 'Future fictional salary'];
+$compensationRace = race([
+    ['action' => 'compensation', 'actor' => $hr->id, 'target' => $employee->id, 'payload' => $compensationPayload],
+    ['action' => 'compensation', 'actor' => $admin->id, 'target' => $employee->id, 'payload' => $compensationPayload],
+]);
+check(count(array_filter($compensationRace, fn ($r) => $r['result'] === 'ok')) === 1, 'Overlapping compensation race failed: '.json_encode($compensationRace));
+check((int) DB::table('compensation_agreements')->where('employee_profile_id', $employee->id)->count() === 1, 'Overlapping compensation was saved');
+
 $seconds = round(microtime(true) - $started, 3);
 echo json_encode(['status' => 'passed', 'processes_per_race' => 2, 'approval_repetitions' => $approvalRounds,
-    'payment_races' => 3, 'calculate_review_races' => 1, 'deadlocks_or_timeouts' => 0,
+    'payment_races' => 3, 'calculate_review_races' => 1, 'policy_races' => 1, 'compensation_races' => 1, 'deadlocks_or_timeouts' => 0,
     'elapsed_seconds' => $seconds], JSON_THROW_ON_ERROR).PHP_EOL;

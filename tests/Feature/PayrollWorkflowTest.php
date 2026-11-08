@@ -63,6 +63,25 @@ class PayrollWorkflowTest extends TestCase
         return [$s, $s->createRun($hr, '2026-10-01', 'regular', [$employee->id])];
     }
 
+    public function test_regular_run_retry_requires_identical_preparer_and_selection(): void
+    {
+        $hr = User::factory()->create(['role' => Role::HR]);
+        $otherHr = User::factory()->create(['role' => Role::HR]);
+        $first = $this->staff(User::factory()->create(), 'P-1');
+        $second = $this->staff(User::factory()->create(), 'P-2');
+        [$service, $run] = $this->setupPayroll($hr, $first);
+        $this->assertSame($run->id, $service->createRun($hr, '2026-10-01', 'regular', [$first->id])->id);
+        foreach ([[$hr, [$second->id]], [$otherHr, [$first->id]]] as [$actor, $selection]) {
+            try {
+                $service->createRun($actor, '2026-10-01', 'regular', $selection);
+                $this->fail('Conflicting pay run retry accepted');
+            } catch (ValidationException $e) {
+                $this->assertArrayHasKey('run', $e->errors());
+            }
+        }
+        $this->assertSame(1, PayrollRun::count());
+    }
+
     public function test_exact_proration_separate_approval_release_and_payment_retries(): void
     {
         $hr = User::factory()->create(['role' => Role::HR]);
@@ -326,6 +345,13 @@ class PayrollWorkflowTest extends TestCase
             $this->fail('Changed leave facts accepted as exact retry');
         } catch (ValidationException $e) {
             $this->assertArrayHasKey('business_date', $e->errors());
+        }
+        $service->calculate($hr, $run);
+        try {
+            $service->finalize($admin, $run->fresh());
+            $this->fail('Stale non-exception review accepted for finalization');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('approval', $e->errors());
         }
         $service->reviseReview($hr, $review, 'neutral', 0, 'Paid leave confirmed', 'Leave approved after original review');
         $this->assertSame(1, PayrollReviewRevision::count());

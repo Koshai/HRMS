@@ -78,10 +78,19 @@ class PayrollService
                 ->where(fn ($q) => $q->whereNull('effective_to')->orWhereDate('effective_to', '>=', $date->endOfMonth()->toDateString()))->sole();
             $key = $kind === 'regular' ? 'regular-'.$date->format('Y-m') : 'supplemental-'.$date->format('Y-m').'-'.bin2hex(random_bytes(8));
 
-            return PayrollRun::firstOrCreate(['company_id' => $actor->company_id, 'run_key' => $key], [
+            $run = PayrollRun::firstOrCreate(['company_id' => $actor->company_id, 'run_key' => $key], [
                 'period_start' => $date->toDateString(), 'kind' => $kind, 'status' => 'draft', 'policy_id' => $policy->id,
                 'prepared_by_user_id' => $actor->id, 'reason' => $reason, 'selected_employee_ids' => $selected,
             ]);
+            $requested = $selected;
+            $existing = $run->selected_employee_ids;
+            sort($requested);
+            sort($existing);
+            if ($existing !== $requested || $run->policy_id !== $policy->id || $run->prepared_by_user_id !== $actor->id || $run->reason !== $reason) {
+                throw ValidationException::withMessages(['run' => 'An existing pay run has different inputs.']);
+            }
+
+            return $run;
         });
     }
 
@@ -291,7 +300,7 @@ class PayrollService
                 }
                 $leave = LeaveRequest::where('company_id', $run->company_id)->where('employee_profile_id', $employee->id)->where('status', 'approved')->whereDate('starts_on', '<=', $date)->whereDate('ends_on', '>=', $date)->whereHas('type', fn ($q) => $q->where('is_paid', false))->exists();
                 $status = $leave ? 'unpaid_leave' : ($summary->schedule->scheduledMinutes > 0 && $summary->actualMinutes > $summary->schedule->scheduledMinutes ? 'overtime_candidate' : $summary->status);
-                if ((in_array($summary->status, $flags, true) || $leave || $status === 'overtime_candidate')
+                if ((in_array($summary->status, $flags, true) || $leave || $status === 'overtime_candidate' || $reviews->has($date))
                     && (! $reviews->has($date) || $reviews[$date]->source_status !== $summary->status
                         || $reviews[$date]->source_fingerprint !== $this->attendanceFingerprint($employee, $date))) {
                     $result[] = ['employee' => $employee, 'date' => $date, 'status' => $status];
