@@ -32,6 +32,10 @@ use Illuminate\Validation\ValidationException;
 require dirname(__DIR__, 2).'/vendor/autoload.php';
 $app = require dirname(__DIR__, 2).'/bootstrap/app.php';
 $app->make(Kernel::class)->bootstrap();
+set_exception_handler(function (Throwable $exception): never {
+    fwrite(STDERR, (string) $exception.PHP_EOL);
+    exit(1);
+});
 if (config('database.default') !== 'mysql' || app()->environment('production')) {
     throw new RuntimeException('This stress harness requires a disposable non-production MySQL database.');
 }
@@ -266,7 +270,7 @@ LeavePolicy::create(['company_id' => $hr->company_id, 'leave_type_id' => $leaveT
 $leave = app(LeaveService::class);
 $leave->grant($hr, $employee, $leaveType, 2026, 40, 'Fictional opening grant', 'stress-grant');
 $shiftLeave = $leave->request($worker, $employee, $leaveType, '2026-11-16', '2026-11-17', null, 'Fictional shift leave overlap', 'stress-shift-leave');
-$expectedCharges = $shiftLeave->charges()->pluck('units', 'business_date')->all();
+$expectedCharges = $shiftLeave->charges()->pluck('units', 'leave_year')->all();
 $replacement = app(ShiftScheduleService::class)->createTemplate($hr, $location, ['code' => 'REPL-'.bin2hex(random_bytes(3)), 'name' => 'Fictional replacement shift',
     'starts_at_local' => '10:00', 'ends_at_local' => '18:00', 'unpaid_break_minutes' => 60, 'grace_in_minutes' => 10, 'grace_out_minutes' => 5]);
 $shiftLeaveRace = race([
@@ -274,7 +278,7 @@ $shiftLeaveRace = race([
     ['action' => 'leave_decide', 'actor' => $hr->id, 'target' => $shiftLeave->id, 'payload' => ['action' => 'approved', 'reason' => 'Fictional approval during shift change']],
 ]);
 check(count(array_filter($shiftLeaveRace, fn ($r) => $r['result'] === 'ok')) === 2, 'Shift/leave race failed: '.json_encode($shiftLeaveRace));
-check($shiftLeave->charges()->pluck('units', 'business_date')->all() === $expectedCharges, 'Shift change altered approved leave charges');
+check($shiftLeave->charges()->pluck('units', 'leave_year')->all() === $expectedCharges, 'Shift change altered approved leave charges');
 check(LeaveBalanceEntry::where('leave_request_id', $shiftLeave->id)->where('kind', 'consumption')->count() === count($expectedCharges), 'Shift/leave race duplicated consumption');
 $request = $leave->request($worker, $employee, $leaveType, '2026-11-09', '2026-11-10', null, 'Fictional family visit', 'stress-leave');
 $approval = ['action' => 'approved', 'reason' => 'Fictional coverage arranged'];
