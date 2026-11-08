@@ -5,20 +5,25 @@ namespace Tests\Feature;
 use App\Employees\AssignmentService;
 use App\Employees\EmployeeProfile;
 use App\Enums\Role;
+use App\Leave\LeaveRequest;
+use App\Leave\LeaveType;
 use App\Models\User;
 use App\Organization\Department;
 use App\Organization\Location;
 use App\Organization\Position;
 use App\Payroll\PayrollEntry;
 use App\Payroll\PayrollPayment;
+use App\Payroll\PayrollReviewRevision;
 use App\Payroll\PayrollRun;
 use App\Payroll\PayrollService;
 use App\Scheduling\ShiftScheduleService;
 use Carbon\CarbonImmutable;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Tests\TestCase;
 
 class PayrollWorkflowTest extends TestCase
@@ -255,6 +260,87 @@ class PayrollWorkflowTest extends TestCase
         } catch (ValidationException $e) {
             $this->assertArrayHasKey('idempotency_key', $e->errors());
         }
+        try {
+            $service->payment($hr, $entry, array_replace($payment, ['idempotency_key' => 'pay-2']));
+            $this->fail('Duplicate payment reference accepted');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('reference', $e->errors());
+        }
         $this->assertSame(1, PayrollPayment::count());
+    }
+
+    public function test_payroll_service_rechecks_roles_and_company_on_mutations(): void
+    {
+        $hr = User::factory()->create(['role' => Role::HR]);
+        $manager = User::factory()->create(['role' => Role::Manager]);
+        $worker = User::factory()->create();
+        $employee = $this->staff($worker, 'P-1');
+        [$service, $run] = $this->setupPayroll($hr, $employee);
+        foreach ([fn () => $service->compensation($manager, $employee, ['effective_from' => '2026-11-01']),
+            fn () => $service->calculate($manager, $run),
+            fn () => $service->finalize($manager, $run),
+            fn () => $service->release($manager, $run)] as $action) {
+            try {
+                $action();
+                $this->fail('Manager mutated payroll via service');
+            } catch (AuthorizationException $e) {
+                $this->assertNotEmpty($e->getMessage());
+            }
+        }
+        $otherCompanyId = DB::table('companies')->insertGetId(['public_id' => (string) Str::uuid(), 'created_at' => now(), 'updated_at' => now()]);
+        $otherHr = User::factory()->create(['role' => Role::HR, 'company_id' => $otherCompanyId]);
+        $this->expectException(NotFoundHttpException::class);
+        $service->calculate($otherHr, $run);
+    }
+
+    public function test_reconciliation_csv_is_restricted_and_escapes_spreadsheet_formulas(): void
+    {
+        $hr = User::factory()->create(['role' => Role::HR]);
+        $manager = User::factory()->create(['role' => Role::Manager]);
+        $worker = User::factory()->create(['name' => '  =SUM(1,1)']);
+        $employee = $this->staff($worker, '+P-1');
+        [$service, $run] = $this->setupPayroll($hr, $employee);
+        $service->calculate($hr, $run);
+        $this->actingAs($manager)->get(route('payroll.export', $run))->assertForbidden();
+        $csv = $this->actingAs($hr)->get(route('payroll.export', $run))->assertOk()->streamedContent();
+        $this->assertStringContainsString("'+P-1", $csv);
+        $this->assertStringContainsString("'  =SUM(1,1)", $csv);
+        $this->assertStringContainsString('3410000', $csv);
+    }
+
+    public function test_review_facts_require_audited_revision_and_finalized_artifacts_are_guarded(): void
+    {
+        $hr = User::factory()->create(['role' => Role::HR]);
+        $admin = User::factory()->create(['role' => Role::Admin]);
+        $worker = User::factory()->create();
+        $employee = $this->staff($worker, 'P-1');
+        [$service, $run] = $this->setupPayroll($hr, $employee);
+        $review = $service->review($hr, $run, $employee, '2026-10-01', 'neutral', 0, 'No pay change');
+        $type = LeaveType::create(['company_id' => $hr->company_id, 'code' => 'TEST-PAID', 'name' => 'Fictional paid leave', 'is_paid' => true, 'is_active' => true]);
+        LeaveRequest::create(['company_id' => $hr->company_id, 'employee_profile_id' => $employee->id,
+            'leave_type_id' => $type->id, 'location_id' => $employee->assignments()->first()->location_id,
+            'requester_user_id' => $worker->id, 'starts_on' => '2026-10-01', 'ends_on' => '2026-10-01',
+            'partial' => null, 'units' => 2, 'status' => 'approved', 'idempotency_key' => 'test-paid']);
+        try {
+            $service->review($hr, $run, $employee, '2026-10-01', 'neutral', 0, 'No pay change');
+            $this->fail('Changed leave facts accepted as exact retry');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('business_date', $e->errors());
+        }
+        $service->reviseReview($hr, $review, 'neutral', 0, 'Paid leave confirmed', 'Leave approved after original review');
+        $this->assertSame(1, PayrollReviewRevision::count());
+        $service->calculate($hr, $run);
+        $service->finalize($admin, $run->fresh());
+        $entry = PayrollEntry::sole();
+        foreach ([fn () => $entry->update(['gross_minor' => 1]), fn () => $entry->delete(),
+            fn () => $run->fresh()->update(['status' => 'draft']), fn () => $run->fresh()->delete(),
+            fn () => $review->fresh()->update(['amount_minor' => 100])] as $change) {
+            try {
+                $change();
+                $this->fail('Finalized financial record changed');
+            } catch (ValidationException $e) {
+                $this->assertNotEmpty($e->errors());
+            }
+        }
     }
 }

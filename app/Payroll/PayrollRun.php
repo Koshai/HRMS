@@ -5,6 +5,7 @@ namespace App\Payroll;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Validation\ValidationException;
 
 /**
  * @property int $id
@@ -22,6 +23,20 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class PayrollRun extends Model
 {
     protected $guarded = [];
+
+    protected static function booted(): void
+    {
+        static::updating(function (self $run): void {
+            if ($run->getOriginal('status') === 'finalized' && array_diff(array_keys($run->getDirty()), ['released_at', 'updated_at']) !== []) {
+                throw ValidationException::withMessages(['run' => 'Finalized payroll cannot be changed.']);
+            }
+        });
+        static::deleting(function (self $run): void {
+            if ($run->status === 'finalized') {
+                throw ValidationException::withMessages(['run' => 'Finalized payroll cannot be deleted.']);
+            }
+        });
+    }
 
     protected function casts(): array
     {

@@ -12,5 +12,7 @@ use Illuminate\Database\Eloquent\Model;
  */
 class PayrollAdjustment extends Model
 {
+    use ImmutablePayrollRecord;
+
     protected $guarded = [];
 }

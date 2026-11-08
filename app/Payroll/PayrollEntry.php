@@ -5,6 +5,7 @@ namespace App\Payroll;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Validation\ValidationException;
 
 /**
  * @property int $id
@@ -20,6 +21,17 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class PayrollEntry extends Model
 {
     protected $guarded = [];
+
+    protected static function booted(): void
+    {
+        $protect = function (self $entry): void {
+            if ($entry->run()->value('status') === 'finalized') {
+                throw ValidationException::withMessages(['entry' => 'Finalized payslip entries cannot be changed.']);
+            }
+        };
+        static::updating($protect);
+        static::deleting($protect);
+    }
 
     protected function casts(): array
     {

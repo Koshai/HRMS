@@ -15,6 +15,8 @@ use Illuminate\Database\Eloquent\Model;
  */
 class CompensationAgreement extends Model
 {
+    use ImmutablePayrollRecord;
+
     protected $guarded = [];
 
     protected function casts(): array

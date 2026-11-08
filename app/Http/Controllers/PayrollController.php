@@ -130,6 +130,20 @@ class PayrollController extends Controller
         return back()->with('status', 'Attendance financial decision recorded.');
     }
 
+    public function reviseReview(Request $request, PayrollRun $run, PayrollAttendanceReview $review, PayrollService $service): RedirectResponse
+    {
+        Gate::authorize('payroll-manage');
+        $this->run($request, $run);
+        if ($review->company_id !== $run->company_id || $review->run_id !== $run->id) {
+            abort(404);
+        }
+        $data = $request->validate(['decision' => 'required|in:neutral,overtime,unpaid', 'amount_minor' => 'required|integer|min:0|max:100000000000',
+            'reason' => 'required|string|max:2000', 'revision_reason' => 'required|string|max:2000']);
+        $service->reviseReview($request->user(), $review, $data['decision'], $data['amount_minor'], $data['reason'], $data['revision_reason']);
+
+        return back()->with('status', 'Financial review revised with audit history. Recalculate the draft.');
+    }
+
     public function adjustment(Request $request, PayrollRun $run, PayrollService $service): RedirectResponse
     {
         Gate::authorize('payroll-manage');
@@ -243,6 +257,8 @@ class PayrollController extends Controller
 
     private function safeCsv(string $text): string
     {
-        return preg_match('/^[=+@\-\t\r]/u', $text) ? "'".$text : $text;
+        $visible = preg_replace('/^[\p{Z}\p{C}]+/u', '', $text) ?? $text;
+
+        return preg_match('/^[=+@\-]/u', $visible) ? "'".$text : $text;
     }
 }

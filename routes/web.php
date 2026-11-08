@@ -46,6 +46,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('admin/payroll/runs', [PayrollController::class, 'createRun'])->name('payroll.runs.store');
     Route::get('admin/payroll/runs/{run}', [PayrollController::class, 'show'])->name('payroll.show');
     Route::post('admin/payroll/runs/{run}/reviews', [PayrollController::class, 'review'])->name('payroll.review');
+    Route::post('admin/payroll/runs/{run}/reviews/{review}/revisions', [PayrollController::class, 'reviseReview'])->name('payroll.review.revise');
     Route::post('admin/payroll/runs/{run}/adjustments', [PayrollController::class, 'adjustment'])->name('payroll.adjustment');
     Route::post('admin/payroll/runs/{run}/calculate', [PayrollController::class, 'calculate'])->name('payroll.calculate');
     Route::post('admin/payroll/runs/{run}/finalize', [PayrollController::class, 'finalize'])->name('payroll.finalize');

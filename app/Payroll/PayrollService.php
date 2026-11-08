@@ -2,6 +2,7 @@
 
 namespace App\Payroll;
 
+use App\Attendance\AttendanceService;
 use App\Employees\EmployeeProfile;
 use App\Leave\LeaveRequest;
 use App\Models\User;
@@ -16,7 +17,7 @@ use Illuminate\Validation\ValidationException;
 
 class PayrollService
 {
-    public function __construct(private readonly AttendanceSummaryService $attendance) {}
+    public function __construct(private readonly AttendanceSummaryService $attendance, private readonly AttendanceService $events) {}
 
     /** @param array<string, mixed> $data */
     public function policy(User $actor, array $data): PayrollPolicy
@@ -95,6 +96,7 @@ class PayrollService
                 abort(404);
             }
             $summary = $this->attendance->daily($employee, $date);
+            $fingerprint = $this->attendanceFingerprint($employee, $date);
             if (! in_array($decision, ['neutral', 'overtime', 'unpaid'], true) || ($decision === 'neutral' && $amount !== 0) || ($decision !== 'neutral' && $amount <= 0)) {
                 throw ValidationException::withMessages(['decision' => 'A financial decision needs a positive minor-unit amount.']);
             }
@@ -103,15 +105,44 @@ class PayrollService
             if (! $review) {
                 $review = PayrollAttendanceReview::create(['company_id' => $run->company_id, 'run_id' => $run->id, 'employee_profile_id' => $employee->id,
                     'business_date' => $date, 'source_status' => $summary->status, 'decision' => $decision, 'amount_minor' => $amount,
-                    'actor_user_id' => $actor->id, 'reason' => $reason]);
+                    'actor_user_id' => $actor->id, 'reason' => $reason, 'source_fingerprint' => $fingerprint]);
             }
-            if (! $review->wasRecentlyCreated && ($review->source_status !== $summary->status || $review->decision !== $decision
+            if (! $review->wasRecentlyCreated && ($review->source_status !== $summary->status || $review->source_fingerprint !== $fingerprint || $review->decision !== $decision
                 || (int) $review->amount_minor !== $amount || $review->reason !== $reason || (int) $review->actor_user_id !== $actor->id)) {
                 throw ValidationException::withMessages(['business_date' => 'This date already has a different financial review. Use a reviewed correction.']);
             }
             if ($review->wasRecentlyCreated) {
                 $run->update(['calculated_at' => null]);
             }
+
+            return $review;
+        });
+    }
+
+    public function reviseReview(User $actor, PayrollAttendanceReview $review, string $decision, int $amount, string $reason, string $revisionReason): PayrollAttendanceReview
+    {
+        $this->authorized($actor, $review->company_id);
+
+        return DB::transaction(function () use ($actor, $review, $decision, $amount, $reason, $revisionReason) {
+            $run = PayrollRun::query()->whereKey($review->run_id)->lockForUpdate()->firstOrFail();
+            $this->draft($run);
+            $review = PayrollAttendanceReview::query()->whereKey($review->id)->lockForUpdate()->firstOrFail();
+            $employee = EmployeeProfile::query()->where('company_id', $run->company_id)->whereKey($review->employee_profile_id)->firstOrFail();
+            if (! in_array($decision, ['neutral', 'overtime', 'unpaid'], true) || ($decision === 'neutral' && $amount !== 0)
+                || ($decision !== 'neutral' && $amount <= 0) || trim($reason) === '' || trim($revisionReason) === '') {
+                throw ValidationException::withMessages(['decision' => 'Provide a valid financial decision and reasons.']);
+            }
+            $before = $review->only(['source_status', 'source_fingerprint', 'decision', 'amount_minor', 'actor_user_id', 'reason']);
+            $summary = $this->attendance->daily($employee, $review->business_date->toDateString());
+            $after = ['source_status' => $summary->status, 'source_fingerprint' => $this->attendanceFingerprint($employee, $review->business_date->toDateString()),
+                'decision' => $decision, 'amount_minor' => $amount, 'actor_user_id' => $actor->id, 'reason' => $reason];
+            if ($before === $after) {
+                throw ValidationException::withMessages(['decision' => 'There is no change to review.']);
+            }
+            PayrollReviewRevision::create(['company_id' => $run->company_id, 'review_id' => $review->id, 'actor_user_id' => $actor->id,
+                'before_snapshot' => $before, 'after_snapshot' => $after, 'reason' => $revisionReason]);
+            $review->update($after);
+            $run->update(['calculated_at' => null]);
 
             return $review;
         });
@@ -260,7 +291,9 @@ class PayrollService
                 }
                 $leave = LeaveRequest::where('company_id', $run->company_id)->where('employee_profile_id', $employee->id)->where('status', 'approved')->whereDate('starts_on', '<=', $date)->whereDate('ends_on', '>=', $date)->whereHas('type', fn ($q) => $q->where('is_paid', false))->exists();
                 $status = $leave ? 'unpaid_leave' : ($summary->schedule->scheduledMinutes > 0 && $summary->actualMinutes > $summary->schedule->scheduledMinutes ? 'overtime_candidate' : $summary->status);
-                if ((in_array($summary->status, $flags, true) || $leave || $status === 'overtime_candidate') && (! $reviews->has($date) || $reviews[$date]->source_status !== $summary->status)) {
+                if ((in_array($summary->status, $flags, true) || $leave || $status === 'overtime_candidate')
+                    && (! $reviews->has($date) || $reviews[$date]->source_status !== $summary->status
+                        || $reviews[$date]->source_fingerprint !== $this->attendanceFingerprint($employee, $date))) {
                     $result[] = ['employee' => $employee, 'date' => $date, 'status' => $status];
                 }
             }
@@ -345,6 +378,22 @@ class PayrollService
         if ($run->status !== 'draft') {
             throw ValidationException::withMessages(['run' => 'Finalized payroll is immutable. Create a supplemental run.']);
         }
+    }
+
+    private function attendanceFingerprint(EmployeeProfile $employee, string $date): string
+    {
+        $summary = $this->attendance->daily($employee, $date);
+        $schedule = $summary->schedule;
+        $events = $this->events->effectiveEvents($employee)
+            ->filter(fn ($event) => $event->getAttribute('effective_business_date') === $date)
+            ->map(fn ($event) => [$event->id, $event->action, $event->getRawOriginal('occurred_at'), $event->timezone])->values()->all();
+        $leave = LeaveRequest::query()->with('type')->where('company_id', $employee->company_id)->where('employee_profile_id', $employee->id)
+            ->where('status', 'approved')->whereDate('starts_on', '<=', $date)->whereDate('ends_on', '>=', $date)->orderBy('id')->get()
+            ->map(fn ($request) => [$request->id, $request->partial, $request->type->is_paid, $request->updated_at?->toISOString()])->all();
+
+        return hash('sha256', json_encode([$summary->status, $summary->actualMinutes, $summary->lateMinutes, $summary->earlyMinutes,
+            $schedule->status, $schedule->template?->id, $schedule->startsAt?->toISOString(), $schedule->endsAt?->toISOString(),
+            $schedule->timezone, $schedule->scheduledMinutes, $events, $leave], JSON_THROW_ON_ERROR));
     }
 
     private function authorized(User $actor, int $companyId): void
