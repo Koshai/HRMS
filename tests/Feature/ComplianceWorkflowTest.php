@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Compliance\ComplianceEvent;
+use App\Compliance\ComplianceReviewEvidence;
 use App\Compliance\ComplianceService;
 use App\Compliance\ComplianceSource;
 use App\Employees\EmployeeProfile;
@@ -152,6 +153,51 @@ class ComplianceWorkflowTest extends TestCase
         $foreign = User::factory()->create(['role' => Role::HR, 'company_id' => $foreignCompany]);
         $this->actingAs($foreign)->post(route('compliance.applicability', $employee), ['effective_from' => '2027-01-01',
             'worker_category' => 'unresolved', 'establishment_regime' => 'unresolved', 'reason' => 'No access'])->assertNotFound();
+    }
+
+    public function test_evidence_register_is_immutable_unverified_and_cannot_unlock_attestation(): void
+    {
+        $hr = User::factory()->create(['role' => Role::HR]);
+        $reviewer = User::factory()->create(['role' => Role::Admin]);
+        $service = app(ComplianceService::class);
+        $pack = $service->create($hr, '2026-07-01', null);
+        $rule = $pack->rules()->firstOrFail();
+        $digest = str_repeat('a', 64);
+        $this->actingAs($hr)->post(route('compliance.evidence', $pack), ['kind' => 'official_source',
+            'reference' => 'private/review/fictional-source-copy.pdf', 'sha256' => $digest,
+            'rule_id' => $rule->id, 'source_id' => $rule->source_id])->assertRedirect();
+        $row = ComplianceReviewEvidence::sole();
+        $this->assertSame('supplied_unverified', $row->status);
+        $this->assertSame($digest, $row->sha256);
+        $this->assertTrue($service->readiness($hr, $pack)['evidence_supplied']);
+        $this->assertFalse($service->readiness($hr, $pack)['rules_legally_verified']);
+        $this->assertFalse($service->readiness($hr, $pack)['employee_applicability_reviewed']);
+        $this->expectValidation(fn () => $row->update(['status' => 'independently_verified']));
+        $this->expectValidation(fn () => $row->delete());
+        $this->expectValidation(fn () => $service->supplyEvidence($hr, $pack, 'official_source', 'ref', 'bad', null, null));
+        $this->expectValidation(fn () => $service->supplyEvidence($hr, $pack, 'official_source', 'ref', $digest, $rule->id, 999999));
+        $service->submitForReview($hr, $pack);
+        $this->expectValidation(fn () => $service->attest($reviewer, $pack, 'Fictional reviewer', 'private signed reference'));
+        $this->expectValidation(fn () => $service->activate($reviewer, $pack));
+        $this->assertSame('ready_for_legal_review', $pack->fresh()->status);
+        $this->assertSame(1, ComplianceReviewEvidence::count());
+        $this->assertSame(1, ComplianceEvent::where('action', 'evidence_supplied')->count());
+    }
+
+    public function test_evidence_submission_denies_other_roles_and_cross_company_identifiers(): void
+    {
+        $hr = User::factory()->create(['role' => Role::HR]);
+        $manager = User::factory()->create(['role' => Role::Manager]);
+        $pack = app(ComplianceService::class)->create($hr, '2026-07-01', null);
+        $foreignCompany = DB::table('companies')->insertGetId(['public_id' => (string) Str::uuid(), 'created_at' => now(), 'updated_at' => now()]);
+        $foreign = User::factory()->create(['role' => Role::HR, 'company_id' => $foreignCompany]);
+        $foreignPack = app(ComplianceService::class)->create($foreign, '2026-07-01', null);
+        $foreignRule = $foreignPack->rules()->firstOrFail();
+        $data = ['kind' => 'worked_case', 'reference' => 'private case', 'sha256' => str_repeat('b', 64)];
+        $this->actingAs($manager)->post(route('compliance.evidence', $pack), $data)->assertForbidden();
+        $this->actingAs($foreign)->post(route('compliance.evidence', $pack), $data)->assertNotFound();
+        $this->actingAs($hr)->post(route('compliance.evidence', $pack), $data + ['rule_id' => $foreignRule->id])->assertSessionHasErrors();
+        $this->assertSame(0, ComplianceReviewEvidence::count());
     }
 
     private function expectValidation(callable $action): void

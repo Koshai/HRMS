@@ -51,9 +51,23 @@ class ComplianceController extends Controller
         $runId = $request->validate(['run_id' => 'nullable|integer'])['run_id'] ?? null;
         $run = $runId === null ? null : PayrollRun::where('company_id', $pack->company_id)->whereKey($runId)->firstOrFail();
 
-        return view('compliance.show', ['pack' => $pack->load(['rules.source', 'events']),
+        return view('compliance.show', ['pack' => $pack->load(['rules.source', 'events', 'reviewEvidence']),
             'runs' => PayrollRun::where('company_id', $pack->company_id)->orderByDesc('period_start')->get(),
-            'run' => $run, 'preview' => $run ? $service->preview($request->user(), $pack, $run) : null]);
+            'run' => $run, 'preview' => $run ? $service->preview($request->user(), $pack, $run) : null,
+            'readiness' => $service->readiness($request->user(), $pack)]);
+    }
+
+    public function evidence(Request $request, CompliancePack $pack, ComplianceService $service): RedirectResponse
+    {
+        Gate::authorize('payroll-manage');
+        $this->own($request, $pack);
+        $data = $request->validate(['kind' => 'required|in:official_source,legal_interpretation,applicability,worked_case,reviewer_credential',
+            'reference' => 'required|string|max:500', 'sha256' => 'required|regex:/^[a-fA-F0-9]{64}$/',
+            'rule_id' => 'nullable|integer', 'source_id' => 'nullable|integer']);
+        $service->supplyEvidence($request->user(), $pack, $data['kind'], $data['reference'], $data['sha256'],
+            $data['rule_id'] ?? null, $data['source_id'] ?? null);
+
+        return back()->with('status', __('compliance.evidence_recorded'));
     }
 
     public function submit(Request $request, CompliancePack $pack, ComplianceService $service): RedirectResponse

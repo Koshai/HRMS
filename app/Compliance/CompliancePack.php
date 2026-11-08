@@ -52,4 +52,10 @@ class CompliancePack extends Model
     {
         return $this->hasMany(ComplianceEvent::class, 'pack_id');
     }
+
+    /** @return HasMany<ComplianceReviewEvidence, $this> */
+    public function reviewEvidence(): HasMany
+    {
+        return $this->hasMany(ComplianceReviewEvidence::class, 'pack_id');
+    }
 }

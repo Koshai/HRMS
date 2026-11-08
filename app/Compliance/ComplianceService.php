@@ -57,6 +57,56 @@ class ComplianceService
         });
     }
 
+    public function supplyEvidence(User $actor, CompliancePack $pack, string $kind, string $reference, string $sha256, ?int $ruleId, ?int $sourceId): ComplianceReviewEvidence
+    {
+        $this->authorize($actor, $pack->company_id);
+        if (! in_array($kind, ['official_source', 'legal_interpretation', 'applicability', 'worked_case', 'reviewer_credential'], true)
+            || trim($reference) === '' || mb_strlen($reference) > 500 || ! preg_match('/^[a-f0-9]{64}$/i', $sha256)) {
+            throw ValidationException::withMessages(['evidence' => __('compliance.invalid_evidence')]);
+        }
+
+        return DB::transaction(function () use ($actor, $pack, $kind, $reference, $sha256, $ruleId, $sourceId) {
+            $pack = $this->locked($actor, $pack);
+            if (! in_array($pack->status, ['draft', 'ready_for_legal_review'], true)
+                || ($ruleId !== null && ! $pack->rules()->whereKey($ruleId)->exists())
+                || ($sourceId !== null && ! $pack->rules()->where('source_id', $sourceId)->exists())) {
+                throw ValidationException::withMessages(['evidence' => __('compliance.invalid_evidence')]);
+            }
+            if ($ruleId !== null && $sourceId !== null && ! $pack->rules()->whereKey($ruleId)->where('source_id', $sourceId)->exists()) {
+                throw ValidationException::withMessages(['evidence' => __('compliance.invalid_evidence')]);
+            }
+            $row = ComplianceReviewEvidence::create(['company_id' => $pack->company_id, 'pack_id' => $pack->id,
+                'rule_id' => $ruleId, 'source_id' => $sourceId, 'supplied_by_user_id' => $actor->id,
+                'kind' => $kind, 'reference' => trim($reference), 'sha256' => strtolower($sha256), 'status' => 'supplied_unverified']);
+            $this->event($pack, $actor, 'evidence_supplied', ['evidence_id' => $row->id, 'kind' => $kind, 'sha256' => $row->sha256]);
+
+            return $row;
+        });
+    }
+
+    /** @return array<string, bool> */
+    public function readiness(User $actor, CompliancePack $pack): array
+    {
+        $this->authorize($actor, $pack->company_id);
+        $rules = $pack->rules()->with('source')->get();
+        $employees = EmployeeProfile::where('company_id', $pack->company_id)->where('status', 'active')->pluck('id');
+        $date = $pack->effective_from->toDateString();
+        $reviewedEmployees = ComplianceApplicability::where('company_id', $pack->company_id)
+            ->where('review_status', 'verified')->where('effective_from', '<=', $date)
+            ->where(fn ($q) => $q->whereNull('effective_to')->orWhere('effective_to', '>=', $date))
+            ->whereIn('employee_profile_id', $employees)->distinct()->count('employee_profile_id');
+
+        return [
+            'candidate_rules_registered' => $rules->count() === count(self::CANDIDATES),
+            'official_sources_linked' => $rules->every(fn (ComplianceRule $rule) => $rule->source !== null),
+            'evidence_supplied' => $pack->reviewEvidence()->exists(),
+            'rules_legally_verified' => $rules->isNotEmpty() && $rules->every(fn (ComplianceRule $rule) => $rule->review_status === 'legally_verified'),
+            'employee_applicability_reviewed' => $employees->isNotEmpty() && $reviewedEmployees === $employees->count(),
+            'independent_attestation' => $pack->reviewed_by_user_id !== null && $pack->reviewed_by_user_id !== $pack->created_by_user_id,
+            'statutory_activation_enabled' => (bool) config('compliance.allow_statutory_activation'),
+        ];
+    }
+
     public function recordApplicability(User $actor, EmployeeProfile $employee, string $from, ?string $to, string $category, string $regime, string $reason): ComplianceApplicability
     {
         $this->authorize($actor, $employee->company_id);

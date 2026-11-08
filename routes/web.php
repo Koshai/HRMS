@@ -46,6 +46,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('admin/compliance/employees/{employee}/applicability', [ComplianceController::class, 'applicability'])->name('compliance.applicability');
     Route::get('admin/compliance/packs/{pack}', [ComplianceController::class, 'show'])->name('compliance.show');
     Route::post('admin/compliance/packs/{pack}/submit', [ComplianceController::class, 'submit'])->name('compliance.submit');
+    Route::post('admin/compliance/packs/{pack}/evidence', [ComplianceController::class, 'evidence'])->name('compliance.evidence');
     Route::post('admin/compliance/packs/{pack}/attest', [ComplianceController::class, 'attest'])->name('compliance.attest');
     Route::post('admin/compliance/packs/{pack}/activate', [ComplianceController::class, 'activate'])->name('compliance.activate');
     Route::post('admin/payroll/policies', [PayrollController::class, 'policy'])->name('payroll.policy');
