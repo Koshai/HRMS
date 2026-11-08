@@ -10,8 +10,11 @@ Environment: local PHP 8.5 server and a copied, fictional SQLite demo database. 
 | Employee own payslips | Ayesha signed in; own payslips initially showed no released slips. Admin payroll link was absent; direct `/admin/payroll` returned 403. After release, she opened the October 37,500.00 BDT payslip and saw the 1,000.00 manual payment. | PASS |
 | Separate approval, release and reconciliation | Nadia finalized the HR-prepared October run, released payslips and recorded a fictional 1,000.00 BDT manual payment. The page showed paid 1,000.00 and outstanding 36,500.00. The restricted CSV downloaded with minor-unit values 3,750,000 net, 100,000 paid and 3,650,000 outstanding. | PASS |
 | Employee mobile navigation | At 390 × 844, dashboard cards fit the viewport. Navigation button opened the sidebar with employee-only links. | PASS |
-| English/Bangla fields, keyboard focus and validation | Not completed in this pass. | OPEN |
+| Bangla navigation and payslip list | With `APP_LOCALE=bn`, the employee dashboard, sidebar, clock label and own-payslip heading rendered in Bangla. The same released fictional payslip was listed. | PASS |
+| Unverified employee session | Temporarily removing verification in the copied fixture redirected an existing session from own payslips to email verification. The original verification value was restored. | PASS |
+| Inactive employee session and sign-in | Temporarily marking the fictional profile inactive redirected the session to sign-in and rejected a new sign-in with a generic credentials error. The profile was restored to active. | PASS |
+| Keyboard focus and form validation | Not completed in this pass. | OPEN |
 | HR create and calculate a new run, plus validation errors | Not completed in this browser pass; covered by feature tests where noted. | OPEN |
-| Inactive, unverified and foreign-company browser sessions | Not completed in the browser; negative authorization feature tests exist. | OPEN |
+| Foreign-company browser session | The installation has a single company; cross-company negative authorization remains covered by feature tests rather than this browser fixture. | OPEN |
 
 This is a partial browser acceptance record. PASS means the named interaction was observed in a real browser; it does not imply the untested journeys passed. The acceptance database and its test-only passwords live under ignored local tooling and are not committed.

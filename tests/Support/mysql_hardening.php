@@ -7,6 +7,11 @@ use App\Attendance\AttendanceService;
 use App\Employees\AssignmentService;
 use App\Employees\EmployeeProfile;
 use App\Enums\Role;
+use App\Leave\LeaveBalanceEntry;
+use App\Leave\LeavePolicy;
+use App\Leave\LeaveRequest;
+use App\Leave\LeaveService;
+use App\Leave\LeaveType;
 use App\Models\User;
 use App\Organization\Department;
 use App\Organization\Location;
@@ -15,6 +20,9 @@ use App\Payroll\PayrollEntry;
 use App\Payroll\PayrollPayment;
 use App\Payroll\PayrollRun;
 use App\Payroll\PayrollService;
+use App\Scheduling\ShiftAssignment;
+use App\Scheduling\ShiftScheduleService;
+use App\Scheduling\ShiftTemplate;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Support\Facades\DB;
@@ -59,6 +67,10 @@ if (($argv[1] ?? '') === 'worker') {
             'policy' => $service->policy($actor, $data)->id,
             'compensation' => $service->compensation($actor, EmployeeProfile::query()->findOrFail((int) $targetId), $data)->id,
             'punch' => app(AttendanceService::class)->punch($actor, EmployeeProfile::query()->findOrFail((int) $targetId), $data['action'], $data['key'])->id,
+            'shift' => app(ShiftScheduleService::class)->assign($actor, EmployeeProfile::query()->findOrFail((int) $targetId), ShiftTemplate::query()->findOrFail((int) $data['template_id']),
+                $data['start'], $data['end'], $data['weekdays'], $data['reason'], $data['key'])->id,
+            'leave_decide' => app(LeaveService::class)->decide($actor, LeaveRequest::query()->findOrFail((int) $targetId), $data['action'], $data['reason'])->id,
+            'leave_cancel' => app(LeaveService::class)->cancel($actor, LeaveRequest::query()->findOrFail((int) $targetId), $data['reason'])->id,
             default => throw new RuntimeException('Unknown worker action'),
         };
         echo json_encode(['result' => 'ok', 'id' => $id], JSON_THROW_ON_ERROR);
@@ -204,7 +216,39 @@ $punchRace = race([
 check(count(array_filter($punchRace, fn ($r) => $r['result'] === 'ok')) === 2, 'Same-key attendance punch race failed: '.json_encode($punchRace));
 check(AttendanceRecord::where('employee_profile_id', $employee->id)->where('idempotency_key', 'stress-punch')->count() === 1, 'Duplicate attendance punch saved');
 
+$template = app(ShiftScheduleService::class)->createTemplate($hr, $location, ['code' => 'STRESS-'.bin2hex(random_bytes(3)), 'name' => 'Fictional stress shift',
+    'starts_at_local' => '09:00', 'ends_at_local' => '17:00', 'unpaid_break_minutes' => 60, 'grace_in_minutes' => 10, 'grace_out_minutes' => 5]);
+$shiftPayload = ['template_id' => $template->id, 'start' => '2026-11-09', 'end' => '2026-11-30', 'weekdays' => [1, 2, 3, 4, 5], 'reason' => 'Fictional shift publication', 'key' => 'stress-shift'];
+$shiftRace = race([
+    ['action' => 'shift', 'actor' => $hr->id, 'target' => $employee->id, 'payload' => $shiftPayload],
+    ['action' => 'shift', 'actor' => $hr->id, 'target' => $employee->id, 'payload' => $shiftPayload],
+]);
+check(count(array_filter($shiftRace, fn ($r) => $r['result'] === 'ok')) === 2, 'Same-key shift assignment race failed: '.json_encode($shiftRace));
+check(ShiftAssignment::where('employee_profile_id', $employee->id)->where('idempotency_key', 'stress-shift')->count() === 1, 'Duplicate shift assignment saved');
+
+$leaveType = LeaveType::create(['company_id' => $hr->company_id, 'code' => 'STRESS-'.bin2hex(random_bytes(3)), 'name' => 'Fictional stress leave', 'is_paid' => true, 'is_active' => true]);
+LeavePolicy::create(['company_id' => $hr->company_id, 'leave_type_id' => $leaveType->id, 'location_id' => $location->id,
+    'effective_from' => '2020-01-01', 'annual_units' => 40, 'allow_half_day' => true, 'allow_negative' => false,
+    'approval_role' => 'hr', 'working_weekdays' => '1,2,3,4,5']);
+$leave = app(LeaveService::class);
+$leave->grant($hr, $employee, $leaveType, 2026, 40, 'Fictional opening grant', 'stress-grant');
+$request = $leave->request($worker, $employee, $leaveType, '2026-11-09', '2026-11-10', null, 'Fictional family visit', 'stress-leave');
+$approval = ['action' => 'approved', 'reason' => 'Fictional coverage arranged'];
+$leaveApprovalRace = race([
+    ['action' => 'leave_decide', 'actor' => $hr->id, 'target' => $request->id, 'payload' => $approval],
+    ['action' => 'leave_decide', 'actor' => $hr->id, 'target' => $request->id, 'payload' => $approval],
+]);
+check(count(array_filter($leaveApprovalRace, fn ($r) => $r['result'] === 'ok')) === 1, 'Leave approval race failed: '.json_encode($leaveApprovalRace));
+check(LeaveBalanceEntry::where('leave_request_id', $request->id)->where('kind', 'consumption')->count() === $request->charges()->count(), 'Leave was consumed more than once');
+$leaveCancellationRace = race([
+    ['action' => 'leave_cancel', 'actor' => $hr->id, 'target' => $request->id, 'payload' => ['reason' => 'Fictional reversal']],
+    ['action' => 'leave_cancel', 'actor' => $hr->id, 'target' => $request->id, 'payload' => ['reason' => 'Fictional reversal']],
+]);
+check(count(array_filter($leaveCancellationRace, fn ($r) => $r['result'] === 'ok')) === 1, 'Leave cancellation race failed: '.json_encode($leaveCancellationRace));
+check(LeaveBalanceEntry::where('leave_request_id', $request->id)->where('kind', 'reversal')->count() === $request->charges()->count(), 'Leave was reversed more than once');
+
 $seconds = round(microtime(true) - $started, 3);
 echo json_encode(['status' => 'passed', 'processes_per_race' => 2, 'approval_repetitions' => $approvalRounds,
-    'payment_races' => 3, 'calculate_review_races' => 1, 'policy_races' => 1, 'compensation_races' => 1, 'attendance_punch_races' => 1, 'deadlocks_or_timeouts' => 0,
+    'payment_races' => 3, 'calculate_review_races' => 1, 'policy_races' => 1, 'compensation_races' => 1, 'attendance_punch_races' => 1,
+    'shift_races' => 1, 'leave_approval_races' => 1, 'leave_cancellation_races' => 1, 'deadlocks_or_timeouts' => 0,
     'elapsed_seconds' => $seconds], JSON_THROW_ON_ERROR).PHP_EOL;
