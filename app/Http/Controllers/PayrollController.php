@@ -232,11 +232,13 @@ class PayrollController extends Controller
                 return;
             }
             fputcsv($out, ['Employee number', 'Name', 'Currency', 'Gross minor', 'Deductions minor', 'Net minor', 'Paid minor', 'Outstanding minor']);
-            foreach ($run->entries as $entry) {
-                $s = $entry->snapshot;
-                $paid = $entry->payments()->sum('amount_minor');
-                fputcsv($out, [$this->safeCsv((string) $s['employee_number']), $this->safeCsv((string) $s['name']), $s['currency'], $entry->gross_minor, $entry->deductions_minor, $entry->net_minor, $paid, $entry->net_minor - $paid]);
-            }
+            $run->entries()->withSum('payments as paid_minor', 'amount_minor')->chunkById(200, function ($entries) use ($out): void {
+                foreach ($entries as $entry) {
+                    $s = $entry->snapshot;
+                    $paid = (int) $entry->getAttribute('paid_minor');
+                    fputcsv($out, [$this->safeCsv((string) $s['employee_number']), $this->safeCsv((string) $s['name']), $s['currency'], $entry->gross_minor, $entry->deductions_minor, $entry->net_minor, $paid, $entry->net_minor - $paid]);
+                }
+            });
             fclose($out);
         }, 'payroll-'.$run->run_key.'.csv', ['Content-Type' => 'text/csv']);
     }

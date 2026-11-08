@@ -109,6 +109,8 @@ class PayrollWorkflowTest extends TestCase
         $service->payment($hr, $entry, $payment);
         $this->assertSame(1, PayrollPayment::count());
         $this->assertSame(760000, $entry->net_minor - $entry->payments()->sum('amount_minor'));
+        $csv = $this->actingAs($hr)->get(route('payroll.export', $run))->assertOk()->streamedContent();
+        $this->assertStringContainsString('1760000,0,1760000,1000000,760000', $csv);
         try {
             $service->payment($hr, $entry, ['amount_minor' => 800000, 'paid_on' => '2026-11-07', 'reference' => 'MANUAL-2', 'idempotency_key' => 'retry-2']);
             $this->fail('Overpayment accepted');
