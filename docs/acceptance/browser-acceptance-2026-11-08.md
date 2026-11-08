@@ -1,6 +1,6 @@
 # Browser acceptance record — 2026-11-08
 
-Environment: local PHP 8.5 server and a copied, fictional SQLite demo database. The original demo database was not changed. Browser: Codex in-app Chromium, desktop default viewport and 390 × 844 mobile viewport. Financial actions in this record are view-only.
+Environment: local PHP 8.5 server and a copied, fictional SQLite demo database. The original demo database was not changed. Browser: Codex in-app Chromium, desktop default viewport and 390 × 844 mobile viewport. All payroll actions used fictional data in the isolated copy.
 
 | Journey | Evidence | Result |
 | --- | --- | --- |
@@ -13,8 +13,9 @@ Environment: local PHP 8.5 server and a copied, fictional SQLite demo database. 
 | Bangla navigation and payslip list | With `APP_LOCALE=bn`, the employee dashboard, sidebar, clock label and own-payslip heading rendered in Bangla. The same released fictional payslip was listed. | PASS |
 | Unverified employee session | Temporarily removing verification in the copied fixture redirected an existing session from own payslips to email verification. The original verification value was restored. | PASS |
 | Inactive employee session and sign-in | Temporarily marking the fictional profile inactive redirected the session to sign-in and rejected a new sign-in with a generic credentials error. The profile was restored to active. | PASS |
-| Keyboard focus and form validation | Not completed in this pass. | OPEN |
-| HR create and calculate a new run, plus validation errors | Not completed in this browser pass; covered by feature tests where noted. | OPEN |
-| Foreign-company browser session | The installation has a single company; cross-company negative authorization remains covered by feature tests rather than this browser fixture. | OPEN |
+| Keyboard focus and form validation | HR email → Tab focused password; Enter submitted sign-in. Blank pay-run month invoked native required-field focus. Submitting a month with no employees displayed “The employee ids field is required.” The server-error banner did not receive focus. | OPEN: error focus |
+| HR create and calculate a new run, plus validation errors | In the isolated copy, Farhana created September regular run for Ayesha, was denied self-approval, added a 5,000-poisha bonus, and calculated 3,755,000-poisha gross/net. Nadia finalized and released it. Ayesha opened her own 37,550.00 BDT payslip; the restricted CSV downloaded. | PASS |
+| Foreign-company browser session | Added fictional Leena Das as HR of a second company in the isolated copy. Her payroll page listed only Leena, no policy or runs; her directory listed only Leena. Direct requests for company-one run `/admin/payroll/runs/2`, payslip `/payroll/payslips/2`, and Ayesha compensation `/admin/payroll/employees/4` each returned 404. | PASS for listed reads; cross-company writes remain feature-test only |
+| Foreign HR mobile navigation | At 390 × 844, the navigation button opened a scrollable sidebar containing HR links. | PASS |
 
-This is a partial browser acceptance record. PASS means the named interaction was observed in a real browser; it does not imply the untested journeys passed. The acceptance database and its test-only passwords live under ignored local tooling and are not committed.
+PASS means the named interaction was observed in a real browser. The acceptance database and its test-only passwords live under ignored local tooling and are not committed. Server validation is visible but focus restoration to the error banner remains an accessibility issue.

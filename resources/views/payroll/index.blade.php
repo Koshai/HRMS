@@ -1,6 +1,6 @@
 <x-layouts::app :title="__('payroll.title')"><section class="mx-auto max-w-6xl space-y-6 p-6">
 <h1 class="text-3xl font-semibold">{{ __('payroll.title') }}</h1><p>{{ __('payroll.legal_review') }} {{ __('payroll.minor_units') }}</p>
-@if(session('status'))<p role="status">{{ session('status') }}</p>@endif @if($errors->any())<div role="alert" class="rounded bg-red-900 p-3 text-white">@foreach($errors->all() as $error)<p>{{ $error }}</p>@endforeach</div>@endif
+@if(session('status'))<p role="status">{{ session('status') }}</p>@endif @if($errors->any())<div role="alert" tabindex="-1" autofocus class="rounded bg-red-900 p-3 text-white">@foreach($errors->all() as $error)<p>{{ $error }}</p>@endforeach</div>@endif
 <form method="POST" action="{{ route('payroll.policy') }}" class="grid gap-3 rounded border p-4 md:grid-cols-2">@csrf<h2 class="text-xl font-semibold md:col-span-2">Payroll policy version</h2>
 <label>Effective from<input required type="date" name="effective_from" class="block w-full rounded border p-2 dark:bg-zinc-800"></label><label>Effective to<input type="date" name="effective_to" class="block w-full rounded border p-2 dark:bg-zinc-800"></label>
 <label>Currency<select name="currency" class="block w-full rounded border p-2 dark:bg-zinc-800"><option value="BDT">BDT</option></select></label><label>Proration basis<select name="proration_basis" class="block w-full rounded border p-2 dark:bg-zinc-800"><option value="calendar_days">Calendar days</option><option value="scheduled_days">Scheduled days</option></select></label>

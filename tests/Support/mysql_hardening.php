@@ -16,6 +16,7 @@ use App\Models\User;
 use App\Organization\Department;
 use App\Organization\Location;
 use App\Organization\Position;
+use App\Payroll\PayrollAttendanceReview;
 use App\Payroll\PayrollEntry;
 use App\Payroll\PayrollPayment;
 use App\Payroll\PayrollRun;
@@ -67,8 +68,10 @@ if (($argv[1] ?? '') === 'worker') {
             'policy' => $service->policy($actor, $data)->id,
             'compensation' => $service->compensation($actor, EmployeeProfile::query()->findOrFail((int) $targetId), $data)->id,
             'punch' => app(AttendanceService::class)->punch($actor, EmployeeProfile::query()->findOrFail((int) $targetId), $data['action'], $data['key'])->id,
+            'attendance_manual' => app(AttendanceService::class)->manual($actor, EmployeeProfile::query()->findOrFail((int) $targetId), $data['action'], CarbonImmutable::parse($data['occurred_at']), $data['reason'], $data['key'])->id,
+            'attendance_decide' => app(AttendanceService::class)->decide($actor, AttendanceRecord::query()->findOrFail((int) $targetId), $data['decision'], $data['reason'])->id,
             'shift' => app(ShiftScheduleService::class)->assign($actor, EmployeeProfile::query()->findOrFail((int) $targetId), ShiftTemplate::query()->findOrFail((int) $data['template_id']),
-                $data['start'], $data['end'], $data['weekdays'], $data['reason'], $data['key'])->id,
+                $data['start'], $data['end'], $data['weekdays'], $data['reason'], $data['key'], $data['supersedes_id'] ?? null)->id,
             'leave_decide' => app(LeaveService::class)->decide($actor, LeaveRequest::query()->findOrFail((int) $targetId), $data['action'], $data['reason'])->id,
             'leave_cancel' => app(LeaveService::class)->cancel($actor, LeaveRequest::query()->findOrFail((int) $targetId), $data['reason'])->id,
             default => throw new RuntimeException('Unknown worker action'),
@@ -193,6 +196,23 @@ if ($run->fresh()->calculated_at === null) {
 $service->finalize($admin, $run->fresh());
 check((int) $run->entries()->sole()->net_minor === 101000, 'Review amount missing from finalized entry');
 
+$run = $service->createRun($hr, '2026-09-01', 'supplemental', [$employee->id], 'Finalize versus review fixture');
+$service->adjustment($hr, $run, $employee, ['kind' => 'correction_credit', 'amount_minor' => 100000, 'idempotency_key' => 'finalize-review-race', 'reason' => 'Fictional correction']);
+$service->calculate($hr, $run);
+$finalizeReviewRace = race([
+    ['action' => 'approve', 'actor' => $admin->id, 'target' => $run->id, 'payload' => []],
+    ['action' => 'review', 'actor' => $hr->id, 'target' => $run->id, 'payload' => ['employee_id' => $employee->id, 'date' => '2026-09-01', 'decision' => 'overtime', 'amount_minor' => 1000, 'reason' => 'Fictional approved amount']],
+]);
+check(count(array_filter($finalizeReviewRace, fn ($r) => $r['result'] === 'ok')) === 1, 'Finalize/review race did not serialize: '.json_encode($finalizeReviewRace));
+if ($run->fresh()->status === 'finalized') {
+    check((int) $run->entries()->sole()->net_minor === 100000 && PayrollAttendanceReview::where('run_id', $run->id)->count() === 0, 'Finalized payroll accepted a later review');
+} else {
+    check($run->fresh()->calculated_at === null && PayrollAttendanceReview::where('run_id', $run->id)->count() === 1, 'Review did not invalidate draft calculation');
+    $service->calculate($hr, $run);
+    $service->finalize($admin, $run->fresh());
+    check((int) $run->entries()->sole()->net_minor === 101000, 'Recalculated review missing from finalized entry');
+}
+
 $policyPayload = ['effective_from' => '2027-01-01', 'currency' => 'BDT', 'proration_basis' => 'calendar_days', 'reason' => 'Future fictional policy'];
 $policyRace = race([
     ['action' => 'policy', 'actor' => $hr->id, 'target' => 0, 'payload' => $policyPayload],
@@ -216,6 +236,19 @@ $punchRace = race([
 check(count(array_filter($punchRace, fn ($r) => $r['result'] === 'ok')) === 2, 'Same-key attendance punch race failed: '.json_encode($punchRace));
 check(AttendanceRecord::where('employee_profile_id', $employee->id)->where('idempotency_key', 'stress-punch')->count() === 1, 'Duplicate attendance punch saved');
 
+$businessDay = CarbonImmutable::now('UTC')->subDay()->startOfDay();
+$attendance = app(AttendanceService::class);
+$correctionEmployee = EmployeeProfile::create(['company_id' => $hr->company_id, 'employee_number' => 'CORR-'.bin2hex(random_bytes(4)), 'name' => 'Fictional Correction Employee']);
+app(AssignmentService::class)->assign($correctionEmployee, $department, $position, $location, CarbonImmutable::parse('2020-01-01'), null, null);
+$original = $attendance->manual($hr, $correctionEmployee, 'check_in', $businessDay->addHours(9), 'Fictional original check-in', 'stress-original');
+$correction = $attendance->proposeCorrection($hr, $original, 'check_in', $businessDay->addHours(10), 'Fictional corrected check-in', 'stress-correction');
+$correctionRace = race([
+    ['action' => 'attendance_decide', 'actor' => $admin->id, 'target' => $correction->id, 'payload' => ['decision' => 'approved', 'reason' => 'Fictional correction review']],
+    ['action' => 'attendance_manual', 'actor' => $hr->id, 'target' => $correctionEmployee->id, 'payload' => ['action' => 'check_out', 'occurred_at' => $businessDay->addHours(9)->addMinutes(30)->toIso8601String(), 'reason' => 'Fictional manual close', 'key' => 'stress-close']],
+]);
+check(count(array_filter($correctionRace, fn ($r) => $r['result'] === 'ok')) === 1, 'Correction/manual sequence race did not serialize: '.json_encode($correctionRace));
+check($correction->decision()->count() <= 1 && AttendanceRecord::where('idempotency_key', 'stress-close')->count() <= 1, 'Attendance race duplicated audit rows');
+
 $template = app(ShiftScheduleService::class)->createTemplate($hr, $location, ['code' => 'STRESS-'.bin2hex(random_bytes(3)), 'name' => 'Fictional stress shift',
     'starts_at_local' => '09:00', 'ends_at_local' => '17:00', 'unpaid_break_minutes' => 60, 'grace_in_minutes' => 10, 'grace_out_minutes' => 5]);
 $shiftPayload = ['template_id' => $template->id, 'start' => '2026-11-09', 'end' => '2026-11-30', 'weekdays' => [1, 2, 3, 4, 5], 'reason' => 'Fictional shift publication', 'key' => 'stress-shift'];
@@ -232,6 +265,17 @@ LeavePolicy::create(['company_id' => $hr->company_id, 'leave_type_id' => $leaveT
     'approval_role' => 'hr', 'working_weekdays' => '1,2,3,4,5']);
 $leave = app(LeaveService::class);
 $leave->grant($hr, $employee, $leaveType, 2026, 40, 'Fictional opening grant', 'stress-grant');
+$shiftLeave = $leave->request($worker, $employee, $leaveType, '2026-11-16', '2026-11-17', null, 'Fictional shift leave overlap', 'stress-shift-leave');
+$expectedCharges = $shiftLeave->charges()->pluck('units', 'business_date')->all();
+$replacement = app(ShiftScheduleService::class)->createTemplate($hr, $location, ['code' => 'REPL-'.bin2hex(random_bytes(3)), 'name' => 'Fictional replacement shift',
+    'starts_at_local' => '10:00', 'ends_at_local' => '18:00', 'unpaid_break_minutes' => 60, 'grace_in_minutes' => 10, 'grace_out_minutes' => 5]);
+$shiftLeaveRace = race([
+    ['action' => 'shift', 'actor' => $hr->id, 'target' => $employee->id, 'payload' => ['template_id' => $replacement->id, 'start' => '2026-11-16', 'end' => '2026-11-30', 'weekdays' => [1, 2, 3, 4, 5], 'reason' => 'Fictional supersession', 'key' => 'stress-replacement', 'supersedes_id' => ShiftAssignment::where('idempotency_key', 'stress-shift')->sole()->id]],
+    ['action' => 'leave_decide', 'actor' => $hr->id, 'target' => $shiftLeave->id, 'payload' => ['action' => 'approved', 'reason' => 'Fictional approval during shift change']],
+]);
+check(count(array_filter($shiftLeaveRace, fn ($r) => $r['result'] === 'ok')) === 2, 'Shift/leave race failed: '.json_encode($shiftLeaveRace));
+check($shiftLeave->charges()->pluck('units', 'business_date')->all() === $expectedCharges, 'Shift change altered approved leave charges');
+check(LeaveBalanceEntry::where('leave_request_id', $shiftLeave->id)->where('kind', 'consumption')->count() === count($expectedCharges), 'Shift/leave race duplicated consumption');
 $request = $leave->request($worker, $employee, $leaveType, '2026-11-09', '2026-11-10', null, 'Fictional family visit', 'stress-leave');
 $approval = ['action' => 'approved', 'reason' => 'Fictional coverage arranged'];
 $leaveApprovalRace = race([
@@ -249,6 +293,6 @@ check(LeaveBalanceEntry::where('leave_request_id', $request->id)->where('kind', 
 
 $seconds = round(microtime(true) - $started, 3);
 echo json_encode(['status' => 'passed', 'processes_per_race' => 2, 'approval_repetitions' => $approvalRounds,
-    'payment_races' => 3, 'calculate_review_races' => 1, 'policy_races' => 1, 'compensation_races' => 1, 'attendance_punch_races' => 1,
-    'shift_races' => 1, 'leave_approval_races' => 1, 'leave_cancellation_races' => 1, 'deadlocks_or_timeouts' => 0,
+    'payment_races' => 3, 'calculate_review_races' => 1, 'finalize_review_races' => 1, 'policy_races' => 1, 'compensation_races' => 1, 'attendance_punch_races' => 1,
+    'attendance_correction_races' => 1, 'shift_races' => 1, 'shift_leave_races' => 1, 'leave_approval_races' => 1, 'leave_cancellation_races' => 1, 'deadlocks_or_timeouts' => 0,
     'elapsed_seconds' => $seconds], JSON_THROW_ON_ERROR).PHP_EOL;
