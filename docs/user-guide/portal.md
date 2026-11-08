@@ -40,6 +40,12 @@ Use this guide to sign in, find your account settings, and explore the portal. T
 
 ## Payroll MVP
 
+### Bangladesh Compliance review workspace
+
+Admin and HR can open **Bangladesh Compliance** to inspect official source links and create an effective-dated draft rules pack. Each candidate rule starts with unresolved applicability and legal interpretation. HR may record a provisional employee category and establishment regime with a reason and effective window; these labels require qualified review and do not change pay. Submit a pack for legal review to preserve its draft and audit history. Preview an existing run to compare its generic gross, deductions and net with the pending statutory estimate. **Not calculated** means no statutory amount has been established; it does not mean zero tax. Attestation and activation stay blocked until every applicable rule has independently verified source interpretation and signed cases. Current deployments have statutory activation disabled, and existing payslips stay unchanged.
+
+For cPanel deployment, run the ordinary Laravel migration after a backup. This adds compliance-only tables and a small official-source register; it does not alter existing payroll tables, require a queue worker, or call an outside service during payroll calculation. For a statutory update, collect the official amended text, document publication and operative dates separately, obtain signed qualified example calculations, create a new pack version, and review it independently before any controlled rollout. Never edit a finalized run to apply a new rule.
+
 Payroll stores money as integer minor units. For BDT, enter poisha: `3100000` means BDT 31,000.00. The portal does not calculate statutory tax, legal overtime rates or transfer money. Have local payroll and legal advisers review your configured policy and each manual withholding or overtime decision before production use.
 
 1. Admin or HR opens **Payroll**. Create a dated policy with currency BDT and a documented proration basis. Calendar-day proration divides monthly salary by the number of days in that month; scheduled-day proration divides by published scheduled days. Keep effective policy versions separate without overlapping dates.

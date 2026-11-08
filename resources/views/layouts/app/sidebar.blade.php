@@ -35,6 +35,7 @@
                     @endcan
                     @can('payroll-manage')
                         <flux:sidebar.item icon="banknotes" :href="route('payroll.index')" :current="request()->routeIs('payroll.*') && !request()->routeIs('payroll.mine', 'payroll.payslip')" wire:navigate>{{ __('payroll.title') }}</flux:sidebar.item>
+                        <flux:sidebar.item icon="document-check" :href="route('compliance.index')" :current="request()->routeIs('compliance.*')" wire:navigate>{{ __('compliance.title') }}</flux:sidebar.item>
                     @endcan
                 </flux:sidebar.group>
                 <flux:sidebar.group :heading="__('portal.account')">

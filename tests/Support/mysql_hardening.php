@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 use App\Attendance\AttendanceRecord;
 use App\Attendance\AttendanceService;
+use App\Compliance\CompliancePack;
+use App\Compliance\ComplianceService;
 use App\Employees\AssignmentService;
 use App\Employees\EmployeeProfile;
 use App\Enums\Role;
@@ -78,6 +80,12 @@ if (($argv[1] ?? '') === 'worker') {
                 $data['start'], $data['end'], $data['weekdays'], $data['reason'], $data['key'], $data['supersedes_id'] ?? null)->id,
             'leave_decide' => app(LeaveService::class)->decide($actor, LeaveRequest::query()->findOrFail((int) $targetId), $data['action'], $data['reason'])->id,
             'leave_cancel' => app(LeaveService::class)->cancel($actor, LeaveRequest::query()->findOrFail((int) $targetId), $data['reason'])->id,
+            'compliance_create' => app(ComplianceService::class)->create($actor, $data['from'], $data['to'] ?? null)->id,
+            'compliance_activate' => (function () use ($actor, $targetId) {
+                app(ComplianceService::class)->activate($actor, CompliancePack::findOrFail((int) $targetId));
+
+                return (int) $targetId;
+            })(),
             default => throw new RuntimeException('Unknown worker action'),
         };
         echo json_encode(['result' => 'ok', 'id' => $id], JSON_THROW_ON_ERROR);
@@ -298,8 +306,23 @@ $leaveCancellationRace = race([
 check(count(array_filter($leaveCancellationRace, fn ($r) => $r['result'] === 'ok')) === 1, 'Leave cancellation race failed: '.json_encode($leaveCancellationRace));
 check(LeaveBalanceEntry::where('leave_request_id', $request->id)->where('kind', 'reversal')->count() === $request->charges()->count(), 'Leave was reversed more than once');
 
+$packRace = race([
+    ['action' => 'compliance_create', 'actor' => $hr->id, 'target' => 0, 'payload' => ['from' => '2026-07-01']],
+    ['action' => 'compliance_create', 'actor' => $admin->id, 'target' => 0, 'payload' => ['from' => '2027-07-01']],
+]);
+check(count(array_filter($packRace, fn ($r) => $r['result'] === 'ok')) === 2, 'Pack version race failed: '.json_encode($packRace));
+check(CompliancePack::where('company_id', $hr->company_id)->distinct()->count('version') === 2, 'Pack versions collided');
+$pack = CompliancePack::where('company_id', $hr->company_id)->firstOrFail();
+$activationRace = race([
+    ['action' => 'compliance_activate', 'actor' => $hr->id, 'target' => $pack->id, 'payload' => []],
+    ['action' => 'compliance_activate', 'actor' => $admin->id, 'target' => $pack->id, 'payload' => []],
+]);
+check(count(array_filter($activationRace, fn ($r) => $r['result'] === 'validation')) === 2, 'Unverified pack activation race failed: '.json_encode($activationRace));
+check($pack->fresh()->status === 'draft' && $pack->events()->count() === 1, 'Unverified pack activation changed state');
+
 $seconds = round(microtime(true) - $started, 3);
 echo json_encode(['status' => 'passed', 'processes_per_race' => 2, 'approval_repetitions' => $approvalRounds,
     'payment_races' => 3, 'calculate_review_races' => 1, 'finalize_review_races' => 1, 'policy_races' => 1, 'compensation_races' => 1, 'attendance_punch_races' => 1,
-    'attendance_correction_races' => 1, 'shift_races' => 1, 'shift_leave_races' => 1, 'leave_approval_races' => 1, 'leave_cancellation_races' => 1, 'deadlocks_or_timeouts' => 0,
+    'attendance_correction_races' => 1, 'shift_races' => 1, 'shift_leave_races' => 1, 'leave_approval_races' => 1, 'leave_cancellation_races' => 1,
+    'compliance_version_races' => 1, 'compliance_activation_denial_races' => 1, 'deadlocks_or_timeouts' => 0,
     'elapsed_seconds' => $seconds], JSON_THROW_ON_ERROR).PHP_EOL;

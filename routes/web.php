@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AttendanceController;
+use App\Http\Controllers\ComplianceController;
 use App\Http\Controllers\EmployeeAdminController;
 use App\Http\Controllers\EmployeeProfileController;
 use App\Http\Controllers\LeaveAdminController;
@@ -40,6 +41,13 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('payroll/team-exceptions/{employee}', [PayrollController::class, 'recommend'])->name('payroll.recommend');
     Route::get('payroll/payslips/{entry}', [PayrollController::class, 'payslip'])->name('payroll.payslip');
     Route::get('admin/payroll', [PayrollController::class, 'index'])->name('payroll.index');
+    Route::get('admin/compliance', [ComplianceController::class, 'index'])->name('compliance.index');
+    Route::post('admin/compliance/packs', [ComplianceController::class, 'store'])->name('compliance.store');
+    Route::post('admin/compliance/employees/{employee}/applicability', [ComplianceController::class, 'applicability'])->name('compliance.applicability');
+    Route::get('admin/compliance/packs/{pack}', [ComplianceController::class, 'show'])->name('compliance.show');
+    Route::post('admin/compliance/packs/{pack}/submit', [ComplianceController::class, 'submit'])->name('compliance.submit');
+    Route::post('admin/compliance/packs/{pack}/attest', [ComplianceController::class, 'attest'])->name('compliance.attest');
+    Route::post('admin/compliance/packs/{pack}/activate', [ComplianceController::class, 'activate'])->name('compliance.activate');
     Route::post('admin/payroll/policies', [PayrollController::class, 'policy'])->name('payroll.policy');
     Route::get('admin/payroll/employees/{employee}', [PayrollController::class, 'employeeCompensation'])->name('payroll.compensation');
     Route::post('admin/payroll/employees/{employee}', [PayrollController::class, 'compensation'])->name('payroll.compensation.store');
