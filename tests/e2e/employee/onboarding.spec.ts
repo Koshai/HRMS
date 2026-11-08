@@ -1,0 +1,47 @@
+import { test, expect } from '@playwright/test';
+import { existsSync, statSync } from 'node:fs';
+import { latestMailLink, signIn } from '../helpers';
+
+test('E2E-02-01/07/08 HR invitation, own password and verification', async ({ browser }) => {
+    const hr = await browser.newContext();
+    const hrPage = await hr.newPage();
+    await signIn(hrPage, 'hr');
+    await hrPage.goto('/admin/employees/create');
+    await hrPage.getByLabel('Name').fill('Fictional New Joiner');
+    await hrPage.getByLabel('Employee number').fill('E2E-JOIN-1');
+    await hrPage.getByRole('button', { name: /Save/i }).click();
+    await expect(hrPage.getByRole('heading', { name: 'Fictional New Joiner' })).toBeVisible();
+    const profileUrl = hrPage.url();
+    const mailLog = process.env.E2E_MAIL_LOG!;
+    const beforeInvite = existsSync(mailLog) ? statSync(mailLog).size : 0;
+    await hrPage.getByLabel('Email').fill('joiner@hrms-e2e.example.invalid');
+    await hrPage.getByLabel('Role').selectOption('employee');
+    await hrPage.getByRole('button', { name: /Invite|Provision/i }).click();
+    await expect(hrPage).toHaveURL(profileUrl);
+
+    const resetUrl = await latestMailLink('/reset-password/', beforeInvite);
+    const joiner = await browser.newContext();
+    const page = await joiner.newPage();
+    await page.goto(resetUrl);
+    await page.getByLabel('Password', { exact: true }).fill(process.env.E2E_PASSWORD!);
+    await page.getByLabel('Confirm password').fill(process.env.E2E_PASSWORD!);
+    await page.getByRole('button', { name: 'Reset password' }).click();
+    await expect(page).toHaveURL(/\/login$/);
+    await page.getByLabel('Email address').fill('joiner@hrms-e2e.example.invalid');
+    await page.getByLabel('Password', { exact: true }).fill(process.env.E2E_PASSWORD!);
+    await page.getByRole('button', { name: 'Log in' }).click();
+    await expect(page).toHaveURL(/\/email\/verify$/);
+    const beforeVerify = statSync(mailLog).size;
+    await page.getByRole('button', { name: 'Resend verification email' }).click();
+    const verifyUrl = await latestMailLink('/email/verify/', beforeVerify);
+    await page.goto(verifyUrl);
+    await expect(page).toHaveURL(/\/dashboard/);
+    await page.goto(profileUrl);
+    await expect(page.getByRole('heading', { name: 'Fictional New Joiner' })).toBeVisible();
+    await page.goto('/attendance/mine');
+    await expect(page).toHaveURL(/\/attendance\/mine$/);
+    await page.goto('/schedule/mine');
+    await expect(page).toHaveURL(/\/schedule\/mine$/);
+    await hr.close();
+    await joiner.close();
+});

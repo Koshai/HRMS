@@ -51,6 +51,11 @@ return [
     */
 
     'channels' => [
+        'e2e_mail' => [
+            'driver' => 'single',
+            'path' => env('E2E_MAIL_LOG', storage_path('logs/e2e-mail.log')),
+            'level' => 'debug',
+        ],
 
         'stack' => [
             'driver' => 'stack',

@@ -130,3 +130,58 @@ jobs:
           DB_DATABASE=hrms_restore_test php tests/Support/mysql_recovery_fingerprint.php > "$RUNNER_TEMP/hrms-restored-fingerprint.json"
           cmp "$RUNNER_TEMP/hrms-source-fingerprint.json" "$RUNNER_TEMP/hrms-restored-fingerprint.json"
           echo 'Fictional MySQL restore counts, row digests and selected references match.'
+
+  browser-e2e:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: hrms_e2e_test
+          MYSQL_ROOT_PASSWORD: test_password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -u root -ptest_password"
+          --health-interval=10s --health-timeout=5s --health-retries=10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup PHP
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_mysql
+          tools: composer:v2
+          coverage: none
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install application and Chromium
+        run: |
+          composer install --no-interaction --prefer-dist
+          npm ci
+          npm run build
+          npx playwright install --with-deps chromium
+      - name: Run isolated fictional browser tests
+        env:
+          E2E_USE_MYSQL: '1'
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_DATABASE: hrms_e2e_test
+          DB_USERNAME: root
+          DB_PASSWORD: test_password
+        run: npm run test:e2e
+      - name: Retain failure report and traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-e2e-failure
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7

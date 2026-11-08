@@ -82,3 +82,7 @@ The local demo uses pre-verified addresses and simulated mail delivery. Keep the
 The leave demo has two fictional leave types, three location-specific policies (Dhaka and New York working weeks differ), two fictional holidays, opening balances, and approved, pending and rejected requests. The fictional unlinked New York employee demonstrates that staff records do not require a portal login. The operator can rerun `php artisan db:seed --class=LeaveDemoSeeder --force` against the isolated local demo database; this seeder refuses to run outside a local environment and is safe to rerun.
 
 The shift demo adds published Dhaka and New York schedules without adding passwords or changing leave balances. The operator can rerun `php artisan db:seed --class=ShiftDemoSeeder --force` against that same isolated local database. The shift seeder also refuses to run outside a local environment.
+
+## Testing the portal locally
+
+Developers and reviewers can run the fictional browser suite with `npm run test:e2e` after installing PHP/Composer dependencies, Node dependencies and Playwright Chromium. The test runner creates a separate temporary database, captured test email log, and Admin/HR/Manager/Employee accounts for two fictional companies. It deletes the temporary run on completion. See `docs/operations/playwright-e2e.md` in the repository for setup and the coverage backlog. These accounts are only for the temporary test run; they are not portal demonstration accounts.

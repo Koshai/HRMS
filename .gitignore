@@ -1,5 +1,10 @@
 /.phpunit.cache
 /node_modules
+/playwright-report
+/test-results
+/storage/logs/e2e-mail.log
+/database/hrms-e2e-test.sqlite
+/.hrms-e2e
 /public/build
 /public/fonts-manifest.dev.json
 /public/hot
